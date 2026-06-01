@@ -14,7 +14,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-REPO_NAME="${REPO_NAME:-shiptohire}"
+REPO_NAME="${REPO_NAME:-repomax}"
 GITHUB_USER="${GITHUB_USER:-$(gh api user -q .login 2>/dev/null || true)}"
 VERCEL_CMD="${VERCEL_CMD:-npx vercel@latest}"
 
