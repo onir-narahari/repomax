@@ -51,7 +51,7 @@ export default function HomepagePreview() {
             <div className="mb-8 flex items-center justify-center gap-3 text-center">
               <div className="hidden h-px flex-1 bg-gradient-to-r from-transparent to-blue-500/20 sm:block" />
               <p className="max-w-md text-sm leading-relaxed text-[#8B9DC3]">
-                ShipToHire extracts your README, stack, and project structure — then writes
+                RepoMax extracts your README, stack, and project structure — then writes
                 career-ready content grounded in what you built.
               </p>
               <div className="hidden h-px flex-1 bg-gradient-to-l from-transparent to-blue-500/20 sm:block" />

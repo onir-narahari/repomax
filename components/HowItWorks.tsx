@@ -6,7 +6,7 @@ const STEPS = [
   },
   {
     number: '02',
-    title: 'ShipToHire reads the project',
+    title: 'RepoMax reads the project',
     description:
       'We analyze the README, file structure, languages, and dependencies — grounding every claim in what you actually built.',
   },

@@ -21,17 +21,17 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ShipToHire — Turn your GitHub project into career content",
+  title: "RepoMax — Turn your GitHub project into career content",
   description:
     "Paste a public GitHub repo URL and instantly get resume bullets, a LinkedIn post, and a tweet grounded in what you actually built.",
   openGraph: {
-    title: "ShipToHire",
+    title: "RepoMax",
     description: "Turn any GitHub repo into resume bullets, LinkedIn posts, and tweets.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "ShipToHire",
+    title: "RepoMax",
     description: "Turn any GitHub repo into resume bullets, LinkedIn posts, and tweets.",
   },
 };

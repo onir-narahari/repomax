@@ -7,7 +7,7 @@ const MESSAGES: Record<AppErrorCode, { title: string; detail: string }> = {
   },
   PRIVATE_REPO: {
     title: 'Private repository',
-    detail: 'ShipToHire only works with public repos. Make the repo public and try again.',
+    detail: 'RepoMax only works with public repos. Make the repo public and try again.',
   },
   NOT_FOUND: {
     title: 'Repo not found',

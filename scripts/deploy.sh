@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ShipToHire — push to GitHub and deploy to Vercel
+# RepoMax — push to GitHub and deploy to Vercel
 #
 # One-time setup:
 #   1. gh auth login          (GitHub CLI)

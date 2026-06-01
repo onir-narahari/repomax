@@ -152,7 +152,7 @@ export default function ExamplePreview() {
               </p>
             </div>
 
-            {/* Card: ShipToHire is working */}
+            {/* Card: RepoMax is working */}
             <div
               className="rounded-2xl border border-[#1E3A5F] bg-[#0A0F1E] p-5"
               style={{ boxShadow: '0 0 40px rgba(59,130,246,0.06)' }}
@@ -163,7 +163,7 @@ export default function ExamplePreview() {
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
                 </span>
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#F4F0E8]/35">
-                  ShipToHire is working
+                  RepoMax is working
                 </span>
               </div>
               <div className="space-y-3">

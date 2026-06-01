@@ -3,7 +3,7 @@ Act as a senior frontend engineer and visual designer.
 I want you to evaluate the current hero section only. Do not change any code yet.
 
 Context:
-This is a dark startup landing page for ShipToHire. The hero has:
+This is a dark startup landing page for RepoMax. The hero has:
 
 * left-side headline, subheadline, and CTA
 * right-side GitHub repo network visual

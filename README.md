@@ -1,4 +1,4 @@
-# ShipToHire
+# RepoMax
 
 Turn a GitHub repo into resume bullets, a LinkedIn post, and an X post.
 
