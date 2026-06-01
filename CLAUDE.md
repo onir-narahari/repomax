@@ -1,9 +1,9 @@
 @AGENTS.md
-# RepoStory
+# ShipToHire
 
 ## Mission
 
-RepoStory turns a GitHub repository into high-converting career and launch content.
+ShipToHire turns a GitHub repository into high-converting career and launch content.
 
 The user should paste a public GitHub repo URL and instantly get:
 1. Three resume bullets that make the project sound internship/recruiter-ready

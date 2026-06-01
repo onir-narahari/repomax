@@ -51,7 +51,7 @@ export default function ProcessPanel() {
             <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-white/35 sm:text-[11px]">
-            RepoStory is working
+            ShipToHire is working
           </span>
         </div>
         <div className="space-y-2 sm:space-y-2.5">

@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     const result = await generateContent(repoContext, targetRole)
     return NextResponse.json(result)
   } catch (err) {
-    console.error('[RepoStory] LLM error:', err)
+    console.error('[ShipToHire] LLM error:', err)
     return errorResponse('LLM_ERROR', 502)
   }
 }

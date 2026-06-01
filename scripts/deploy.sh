@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RepoStory — push to GitHub and deploy to Vercel
+# ShipToHire — push to GitHub and deploy to Vercel
 #
 # One-time setup:
 #   1. gh auth login          (GitHub CLI)
@@ -14,7 +14,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-REPO_NAME="${REPO_NAME:-repostory}"
+REPO_NAME="${REPO_NAME:-shiptohire}"
 GITHUB_USER="${GITHUB_USER:-$(gh api user -q .login 2>/dev/null || true)}"
 VERCEL_CMD="${VERCEL_CMD:-npx vercel@latest}"
 

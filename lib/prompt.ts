@@ -176,13 +176,13 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
   const choice = response.choices[0]
   const toolCall = choice?.message?.tool_calls?.[0]
   if (!toolCall || toolCall.type !== 'function') {
-    console.error('[RepoStory] Bullet gen — no tool call. finish_reason:', choice?.finish_reason, 'content:', choice?.message?.content)
+    console.error('[ShipToHire] Bullet gen — no tool call. finish_reason:', choice?.finish_reason, 'content:', choice?.message?.content)
     throw new Error('LLM_ERROR')
   }
 
   const result = JSON.parse(toolCall.function.arguments) as BulletsResult
   if (!Array.isArray(result.resumeBullets) || result.resumeBullets.length < 3) {
-    console.error('[RepoStory] Bullet gen — too few bullets:', result.resumeBullets?.length, result.resumeBullets)
+    console.error('[ShipToHire] Bullet gen — too few bullets:', result.resumeBullets?.length, result.resumeBullets)
     throw new Error('LLM_ERROR')
   }
   return result

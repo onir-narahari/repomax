@@ -1,4 +1,4 @@
-# RepoStory
+# ShipToHire
 
 Turn a GitHub repo into resume bullets, a LinkedIn post, and an X post.
 
@@ -45,7 +45,7 @@ npm run deploy
 This script will:
 
 1. Run `npm run build` locally (fail fast)
-2. Create/push the GitHub repo (`onir-narahari/repostory` by default)
+2. Create/push the GitHub repo (`onir-narahari/shiptohire` by default)
 3. Link the Vercel project
 4. Sync env vars from `.env.local` to Vercel
 5. Run a production deploy
