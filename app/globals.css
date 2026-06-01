@@ -1,26 +1,499 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-instrument-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-heading: var(--font-fraunces);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  --rs-page-bg: #070A12;
+  --rs-surface: #0D111C;
+  --rs-surface-elevated: #111827;
+  --rs-input-bg: #090D16;
+  --rs-border: #242B3A;
+  --rs-border-strong: #334155;
+  --rs-text-primary: #F5F3EA;
+  --rs-text-secondary: #9AA3B5;
+  --rs-text-muted: #687386;
+  --rs-accent: #7AA7FF;
+  --rs-accent-hover: #A5C4FF;
+  --rs-btn-primary-bg: #F5F3EA;
+  --rs-btn-primary-text: #070A12;
+  --rs-btn-primary-hover: #E7E2D7;
+
+  /* legacy aliases */
+  --rs-bg: var(--rs-page-bg);
+  --rs-navy: var(--rs-surface);
+  --rs-muted: var(--rs-text-secondary);
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ─── Display font (Fraunces) ───────────────────── */
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+}
+
+/* ─── Page entry animation ──────────────────────── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.anim-in {
+  animation: fadeInUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Loading dots ──────────────────────────────── */
+@keyframes dotPulse {
+  0%, 80%, 100% {
+    transform: scale(0.5);
+    opacity: 0.2;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* ─── Hero — contribution grid + repo network ─── */
+.hero-network-canvas {
+  opacity: 0.94;
+}
+
+@media (min-width: 1280px) {
+  .hero-network-canvas {
+    opacity: 0.97;
+  }
+}
+
+.hero-network-canvas .react-flow {
+  background: transparent !important;
+}
+
+.hero-network-canvas .react-flow__pane {
+  cursor: default;
+}
+
+.hero-network-canvas .react-flow__controls,
+.hero-network-canvas .react-flow__panel {
+  display: none !important;
+}
+
+.hero-network-canvas .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.hero-beam-edge {
+  stroke-dasharray: 6 4;
+  animation: beamDash 10s linear infinite;
+}
+
+@keyframes beamDash {
+  to { stroke-dashoffset: -100; }
+}
+
+/* ─── Demo simulation animations ────────────────── */
+@keyframes demoTypewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes demoCursorFade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes demoCursorDisappear {
+  0% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes demoStepIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes demoCardSlideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes demoAnalyzingPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.demo-typewriter-url {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  animation: demoTypewriter 1.4s steps(24, end) 0.5s forwards;
+}
+
+.demo-typewriter-cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 0.85em;
+  background: #60a5fa;
+  vertical-align: middle;
+  margin-left: 1px;
+  animation:
+    demoCursorFade 0.7s step-end 1.9s 3,
+    demoCursorDisappear 0.3s ease forwards 4s;
+}
+
+.demo-analyzing-bar {
+  opacity: 0;
+  animation: demoCardSlideIn 0.4s ease forwards 1.9s;
+}
+
+.demo-analyzing-fill {
+  width: 60%;
+  animation: demoAnalyzingPulse 1.2s ease-in-out infinite;
+  animation-delay: 1.9s;
+}
+
+.demo-analyzing-label {
+  opacity: 0;
+  animation: demoCardSlideIn 0.4s ease forwards 2s;
+}
+
+.demo-step-item {
+  opacity: 0;
+  animation: demoStepIn 0.35s ease forwards;
+}
+
+.demo-output-card {
+  opacity: 0;
+  animation: demoCardSlideIn 0.45s ease forwards;
+}
+
+/* ─── Hero preview card ──────────────────────────── */
+@keyframes heroTyper {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes heroProcExpand {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+@keyframes heroFadeUp {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sequence: card appears ~0.9s → URL types 1.0–1.9s → bar fills 2.0–3.0s → bullets reveal 2.5s+ */
+.hero-url-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  animation: heroTyper 0.9s steps(25, end) 1.0s forwards;
+}
+
+.hero-proc-fill {
+  width: 0%;
+  animation: heroProcExpand 1.0s cubic-bezier(0.4, 0, 0.2, 1) 2.0s forwards;
+}
+
+.hero-bullets-label {
+  opacity: 0;
+  animation: heroFadeUp 0.35s ease forwards 2.5s;
+}
+
+.hero-bullet-item {
+  opacity: 0;
+  animation: heroFadeUp 0.4s ease forwards;
+}
+
+/* ─── Generate page — ambient orbs ──────────────── */
+@keyframes genOrbDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.05); }
+  66% { transform: translate(-20px, 15px) scale(0.97); }
+}
+
+.gen-orb-a { animation: genOrbDrift 18s ease-in-out infinite; }
+.gen-orb-b { animation: genOrbDrift 22s ease-in-out infinite reverse; }
+.gen-orb-c { animation: genOrbDrift 16s ease-in-out infinite 2s; }
+
+.gen-grid {
+  opacity: 0.034;
+  background-image:
+    linear-gradient(rgba(245, 243, 234, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245, 243, 234, 0.32) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  mask-image: radial-gradient(
+    ellipse 72% 58% at 50% 44%,
+    black 14%,
+    transparent 76%
+  );
+}
+
+@media (min-width: 768px) {
+  .gen-grid {
+    opacity: 0.04;
+  }
+}
+
+/* ─── Generate page — studio bar glow ───────────── */
+.studio-bar {
+  animation: studioGlow 4s ease-in-out infinite;
+}
+
+@keyframes studioGlow {
+  0%, 100% {
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 0 0 1px rgba(36, 43, 58, 0.8);
+  }
+  50% {
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px rgba(51, 65, 85, 0.5);
+  }
+}
+
+/* ─── Generate page — output panel enter ────────── */
+@keyframes outputPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.output-panel-enter {
+  animation: outputPanelIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Generate page — bullet stagger ────────────── */
+@keyframes bulletReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.output-bullet {
+  animation: bulletReveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Generate page — loading bar shimmer ───────── */
+@keyframes barShimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+.loading-bar-fill {
+  background-size: 200% 100%;
+  animation: barShimmer 2.5s linear infinite;
+}
+
+/* ─── Skeleton shimmer ───────────────────────────── */
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
+}
+
+/* ─── Loading label fade ─────────────────────────── */
+@keyframes loadingLabelFade {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.loading-label {
+  animation: loadingLabelFade 0.35s ease both;
+}
+
+/* ─── Repo name dramatic reveal ──────────────────── */
+@keyframes repoNameReveal {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.repo-name-reveal {
+  animation: repoNameReveal 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Result owner / dot enter ───────────────────── */
+@keyframes resultMetaFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.result-meta-enter {
+  animation: resultMetaFade 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Grain overlay ─────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  opacity: 0.04;
+  pointer-events: none;
+  z-index: 9999;
 }
