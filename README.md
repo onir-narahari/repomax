@@ -1,6 +1,6 @@
 # RepoMax
 
-Turn a GitHub repo into resume bullets, a LinkedIn post, and an X post.
+Turn a public GitHub repo into a **Repo Score** (6 weighted categories) and **3 resume bullets** grounded in what you actually built.
 
 ## Local development
 
@@ -17,7 +17,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | Powers story generation |
+| `OPENAI_API_KEY` | Yes | Powers repo scoring and bullet generation |
 | `GITHUB_TOKEN` | No | GitHub PAT for higher API rate limits |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis URL for rate limiting |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis token for rate limiting |

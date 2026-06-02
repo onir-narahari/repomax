@@ -1,7 +1,6 @@
 'use client'
 
 import ContributionGrid from '@/components/hero/ContributionGrid'
-import HeroNetworkCanvas from '@/components/hero/HeroNetworkCanvas'
 
 export default function HeroBackground() {
   return (
@@ -15,7 +14,6 @@ export default function HeroBackground() {
       />
 
       <ContributionGrid />
-      <HeroNetworkCanvas />
 
       <div
         className="absolute inset-0"

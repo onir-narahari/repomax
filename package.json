@@ -15,6 +15,7 @@
     "@shadergradient/react": "^2.4.20",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
+    "@vercel/analytics": "^2.0.1",
     "@xyflow/react": "^12.10.2",
     "camera-controls": "^3.1.2",
     "class-variance-authority": "^0.7.1",

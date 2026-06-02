@@ -39,18 +39,6 @@ export default function ResultsPanel({ data, onReset }: Props) {
         badge="×3"
         content={data.resumeBullets}
       />
-      <ResultCard
-        title="LinkedIn Post"
-        helperText="Ready to post. Sounds like a real builder — not a press release."
-        content={data.linkedInPost}
-      />
-      <ResultCard
-        title="X / Twitter Post"
-        helperText="Short, specific, and worth reading. Check character count before posting."
-        content={data.twitterPost}
-        charLimit={280}
-      />
-
       <button
         onClick={onReset}
         className="w-full rounded-xl border border-[#F4F0E8]/10 py-3 text-sm text-[#F4F0E8]/35 transition hover:border-[#F4F0E8]/20 hover:text-[#F4F0E8]/60 focus:outline-none focus:ring-2 focus:ring-[#F4F0E8]/15"

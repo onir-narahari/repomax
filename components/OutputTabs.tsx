@@ -8,42 +8,34 @@ import type { AnalyzeResponse } from '@/types'
 
 type TabId = 'review' | 'resume'
 
-const REVIEW_TAB = { id: 'review' as const, label: 'Repo Review', kicker: 'Score' }
-const RESUME_TAB = { id: 'resume' as const, label: 'Resume',      kicker: 'Bullets' }
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'review', label: 'Repo Review' },
+  { id: 'resume', label: 'Resume Bullets' },
+]
 
 interface Props {
   data?: AnalyzeResponse
   repoUrl?: string
+  isLoading?: boolean
 }
 
-function scoreAccent(total: number) {
-  if (total >= 90) return 'text-emerald-400'
-  if (total >= 80) return 'text-blue-400'
-  if (total >= 70) return 'text-amber-400'
-  if (total >= 60) return 'text-orange-400'
-  return 'text-red-400'
-}
-
-function ResultsTabBar({
+function PillTabBar({
   tabs,
   active,
   onSelect,
-  score,
 }: {
-  tabs: { id: TabId; label: string; kicker: string }[]
+  tabs: { id: TabId; label: string }[]
   active: TabId
   onSelect: (id: TabId) => void
-  score?: number
 }) {
   return (
     <div
       role="tablist"
       aria-label="Generated outputs"
-      className="mb-6 grid grid-cols-2 gap-1 rounded-2xl border border-[#242B3A] bg-[#090D16]/90 p-1 backdrop-blur-sm"
+      className="mb-5 inline-flex gap-0.5 rounded-full border border-[#242B3A] bg-[#0D111C] p-1"
     >
       {tabs.map((tab) => {
         const isActive = active === tab.id
-        const showScore = tab.id === 'review' && score != null
         return (
           <button
             key={tab.id}
@@ -51,40 +43,13 @@ function ResultsTabBar({
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
             className={[
-              'group relative rounded-xl px-3 py-3 text-left transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7AA7FF]/30',
+              'rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7AA7FF]/25',
               isActive
-                ? 'bg-[#111827] shadow-[0_8px_24px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-[#334155]/60'
-                : 'text-[#687386] hover:bg-[#0D111C] hover:text-[#9AA3B5]',
+                ? 'bg-[#111827] text-[#7AA7FF]'
+                : 'text-[#687386] hover:text-[#9AA3B5]',
             ].join(' ')}
           >
-            {isActive && (
-              <span
-                className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-[#7AA7FF]/50 to-transparent"
-                aria-hidden="true"
-              />
-            )}
-            <span
-              className={`block text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                isActive ? 'text-[#7AA7FF]/80' : 'text-[#687386]'
-              }`}
-            >
-              {tab.kicker}
-            </span>
-            <span
-              className={`mt-0.5 block text-sm font-semibold tracking-tight ${
-                isActive ? 'text-[#F5F3EA]' : 'text-[#9AA3B5] group-hover:text-[#F5F3EA]'
-              }`}
-            >
-              {tab.label}
-            </span>
-            {showScore && (
-              <span
-                className={`mt-1.5 block text-xl font-bold tabular-nums leading-none ${scoreAccent(score)}`}
-              >
-                {score}
-                <span className="text-sm font-normal text-[#687386]">/100</span>
-              </span>
-            )}
+            {tab.label}
           </button>
         )
       })}
@@ -92,7 +57,7 @@ function ResultsTabBar({
   )
 }
 
-export default function OutputTabs({ data, repoUrl }: Props) {
+export default function OutputTabs({ data, repoUrl, isLoading = false }: Props) {
   const hasData = !!data
   const hasReview = !!data?.repoScore
 
@@ -103,7 +68,7 @@ export default function OutputTabs({ data, repoUrl }: Props) {
     else if (hasData) setActiveTab('resume')
   }, [hasData, hasReview, data?.repoScore?.total])
 
-  const tabs = hasReview ? [REVIEW_TAB, RESUME_TAB] : [RESUME_TAB]
+  const tabs = hasData && !hasReview ? TABS.filter((t) => t.id === 'resume') : TABS
 
   return (
     <div>
@@ -122,38 +87,30 @@ export default function OutputTabs({ data, repoUrl }: Props) {
         </div>
       )}
 
-      {hasData ? (
-        <>
-          <ResultsTabBar
-            tabs={tabs}
-            active={activeTab}
-            onSelect={setActiveTab}
-            score={data?.repoScore?.total}
-          />
-          <div role="tabpanel" key={activeTab} className="output-panel-enter">
-            {activeTab === 'review' && data?.repoScore ? (
-              <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} />
-            ) : (
-              <OutputCard
-                content={data.resumeBullets}
-                empty={false}
-                tabId="resume"
-              />
-            )}
+      <PillTabBar tabs={tabs} active={activeTab} onSelect={setActiveTab} />
+
+      <div role="tabpanel" key={`${activeTab}-${hasData ? 'data' : 'idle'}`} className="relative output-panel-enter">
+        {isLoading && (
+          <div
+            className="absolute inset-0 z-10 flex items-start justify-center rounded-2xl bg-[#070A12]/55 pt-8 backdrop-blur-[2px]"
+            aria-live="polite"
+          >
+            <p className="text-sm font-medium text-[#9AA3B5]">Scoring your repo…</p>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="mb-6">
-            <RepoScoreCardGhost />
-          </div>
-          <OutputCard
-            content={[]}
-            empty
-            tabId="resume"
-          />
-        </>
-      )}
+        )}
+
+        {hasData ? (
+          activeTab === 'review' && data?.repoScore ? (
+            <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} />
+          ) : (
+            <OutputCard content={data?.resumeBullets ?? []} empty={false} tabId="resume" />
+          )
+        ) : activeTab === 'review' ? (
+          <RepoScoreCardGhost />
+        ) : (
+          <OutputCard content={[]} empty tabId="resume" />
+        )}
+      </div>
     </div>
   )
 }

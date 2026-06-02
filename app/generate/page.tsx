@@ -45,6 +45,7 @@ export default function GeneratePage() {
   const [submittedUrl, setSubmittedUrl] = useState('')
   const [urlValue, setUrlValue] = useState('')
   const [validationError, setValidationError] = useState('')
+  const [hasScoredOnce, setHasScoredOnce] = useState(false)
 
   const validate = (url: string) => {
     if (!url.trim()) return 'Please enter a GitHub repo URL'
@@ -69,6 +70,8 @@ export default function GeneratePage() {
         return
       }
       setState({ status: 'results', data: data as AnalyzeResponse })
+      setHasScoredOnce(true)
+      setUrlValue('')
     } catch {
       setState({ status: 'error', code: 'UNKNOWN' })
     }
@@ -86,7 +89,78 @@ export default function GeneratePage() {
 
   const isLoading = state.status === 'loading'
   const results = state.status === 'results' ? state.data : undefined
+  const hasResults = state.status === 'results'
   const centerIdle = state.status === 'idle' || state.status === 'error'
+  const showFullInput = !hasScoredOnce
+  const showCompactInput = hasScoredOnce
+
+  const submitButton = (compact: boolean) =>
+    isLoading ? (
+      <span className="flex items-center justify-center gap-2">
+        <span className="inline-flex gap-1" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className={`inline-block h-1 w-1 rounded-full ${compact ? 'bg-current opacity-70' : 'bg-[#070A12]/70'}`}
+              style={{
+                animation: 'dotPulse 1.4s ease-in-out infinite',
+                animationDelay: `${i * 0.2}s`,
+              }}
+            />
+          ))}
+        </span>
+        Scoring
+      </span>
+    ) : compact ? (
+      'Try another repo →'
+    ) : (
+      'Get your Repo Score →'
+    )
+
+  const urlForm = (compact: boolean) => (
+    <form
+      onSubmit={handleFormSubmit}
+      className={`mx-auto max-w-2xl ${compact ? '' : isLoading ? 'mt-0' : 'mt-7 sm:mt-8'}`}
+    >
+      <div className={`flex flex-col gap-2 sm:flex-row sm:items-stretch ${compact ? 'gap-1.5' : ''}`}>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="repo-url" className="sr-only">
+            Repository URL
+          </label>
+          <input
+            id="repo-url"
+            type="url"
+            value={urlValue}
+            onChange={(e) => {
+              setUrlValue(e.target.value)
+              setValidationError('')
+            }}
+            placeholder="https://github.com/owner/repo"
+            disabled={isLoading}
+            className={`w-full rounded-xl border border-[#242B3A] bg-[#090D16] font-mono text-sm text-[#F5F3EA] placeholder:font-sans placeholder:text-[#687386] transition focus:border-[#334155] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/15 disabled:opacity-50 ${
+              compact ? 'px-3 py-2' : 'px-4 py-3.5'
+            }`}
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isLoading}
+          className={
+            compact
+              ? 'shrink-0 rounded-xl border border-[#242B3A] bg-[#111827] px-4 py-2 text-sm font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap'
+              : 'shrink-0 rounded-xl bg-[#F5F3EA] px-7 py-3.5 text-sm font-semibold text-[#070A12] transition hover:bg-[#E7E2D7] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[168px]'
+          }
+        >
+          {submitButton(compact)}
+        </button>
+      </div>
+      {validationError && (
+        <p role="alert" className="mt-2.5 text-xs text-red-400">
+          {validationError}
+        </p>
+      )}
+    </form>
+  )
 
   return (
     <main className="relative flex min-h-screen flex-col text-[#F5F3EA]">
@@ -110,69 +184,25 @@ export default function GeneratePage() {
 
       <div
         className={`relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 pb-16 sm:px-8 ${
-          centerIdle ? 'justify-center py-10 sm:py-14' : 'pt-10 sm:pt-14'
+          centerIdle ? 'justify-center py-10 sm:py-14' : hasResults ? 'pt-4 sm:pt-6' : 'pt-10 sm:pt-14'
         }`}
       >
-        {/* Input studio bar */}
-        <section className="mb-8 anim-in" style={{ animationDelay: '80ms' }}>
-          <p className="mx-auto max-w-lg text-center text-xl font-semibold tracking-[-0.02em] text-[#F5F3EA] sm:text-2xl">
-            Paste GitHub URL.{' '}
-            <span className="font-display italic text-[#7AA7FF]">Get hired.</span>
-          </p>
-          {isLoading && <InputLoading />}
-          <form onSubmit={handleFormSubmit} className={`mx-auto max-w-2xl ${isLoading ? 'mt-0' : 'mt-7 sm:mt-8'}`}>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-              <div className="min-w-0 flex-1">
-                <label htmlFor="repo-url" className="sr-only">
-                  Repository URL
-                </label>
-                <input
-                  id="repo-url"
-                  type="url"
-                  value={urlValue}
-                  onChange={(e) => {
-                    setUrlValue(e.target.value)
-                    setValidationError('')
-                  }}
-                  placeholder="https://github.com/owner/repo"
-                  disabled={isLoading}
-                  className="w-full rounded-xl border border-[#242B3A] bg-[#090D16] px-4 py-3.5 font-mono text-sm text-[#F5F3EA] placeholder:font-sans placeholder:text-[#687386] transition focus:border-[#334155] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/15 disabled:opacity-50"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="shrink-0 rounded-xl bg-[#F5F3EA] px-7 py-3.5 text-sm font-semibold text-[#070A12] transition hover:bg-[#E7E2D7] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[168px]"
-              >
-                {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="inline-flex gap-1" aria-hidden="true">
-                      {[0, 1, 2].map((i) => (
-                        <span
-                          key={i}
-                          className="inline-block h-1 w-1 rounded-full bg-[#070A12]/70"
-                          style={{
-                            animation: 'dotPulse 1.4s ease-in-out infinite',
-                            animationDelay: `${i * 0.2}s`,
-                          }}
-                        />
-                      ))}
-                    </span>
-                    Generating
-                  </span>
-                ) : (
-                  'Score my repo →'
-                )}
-              </button>
-            </div>
+        {showFullInput && (
+          <section className="mb-8 anim-in" style={{ animationDelay: '80ms' }}>
+            <p className="mx-auto mb-0 max-w-lg text-center text-xl font-semibold tracking-[-0.02em] text-[#F5F3EA] sm:text-2xl">
+              Paste GitHub URL.{' '}
+              <span className="font-display italic text-[#7AA7FF]">Get your Repo Score.</span>
+            </p>
+            {isLoading && <InputLoading />}
+            {urlForm(false)}
+          </section>
+        )}
 
-            {validationError && (
-              <p role="alert" className="mt-2.5 text-xs text-red-400">
-                {validationError}
-              </p>
-            )}
-          </form>
-        </section>
+        {showCompactInput && (
+          <section className="mb-5 anim-in" style={{ animationDelay: '80ms' }}>
+            {urlForm(true)}
+          </section>
+        )}
 
         {/* Error Banner */}
         {state.status === 'error' && (
@@ -181,12 +211,14 @@ export default function GeneratePage() {
           </div>
         )}
 
-        {/* Output */}
-        {!isLoading && (
-          <div className="anim-in" style={{ animationDelay: '100ms' }}>
-            <OutputTabs data={results} repoUrl={submittedUrl} />
-          </div>
-        )}
+        {/* Output — keep tab shell visible while loading */}
+        <div className="anim-in" style={{ animationDelay: '100ms' }}>
+          <OutputTabs
+            data={results}
+            repoUrl={submittedUrl}
+            isLoading={isLoading}
+          />
+        </div>
 
       </div>
 

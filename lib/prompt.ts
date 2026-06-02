@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import type { RepoContext, RepoScore } from '@/types'
-import { normalizeRepoScore } from './repo-score'
+import { normalizeRepoScore, filterRepoAdvice, readmeClaimsShippedProduct } from './repo-score'
 import { AnalyzeResponseSchema, RepoScoreSchema, type AnalyzeResponseOutput } from './schema'
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -192,9 +192,11 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
 
 // ─── Repo scoring ─────────────────────────────────────────────────────────────
 
-const SCORE_SYSTEM_PROMPT = `You are a senior software engineer and technical recruiter auditing a GitHub repository.
+const SCORE_SYSTEM_PROMPT = `You are a senior software engineer auditing a GitHub repository for quality.
 
-Score this repo across 7 categories. Each category has a max score listed below.
+Most repos you score are portfolio or learning projects built to show technical depth — not production SaaS with users. Score the repo itself: clarity, engineering depth, completeness, docs, and quality signals. This is NOT a resume-writing review.
+
+Score this repo across 6 categories. Each category has a max score listed below.
 
 CATEGORIES (total max = 100):
 1. first_impression_clarity — max 15
@@ -209,50 +211,49 @@ CATEGORIES (total max = 100):
    5–9: partial setup instructions, missing steps or env config
    0–4: no setup instructions or clearly broken/missing instructions
 
-3. technical_depth_system_design — max 20
+3. technical_depth_system_design — max 25  ← most important
    Does the code show meaningful engineering work beyond basic CRUD or tutorial-following?
-   15–20: real system design, non-trivial architecture, interesting algorithms, API/backend design, ML pipeline, or domain logic
-   8–14: shows some technical effort but is mostly standard framework usage
-   0–7: basic CRUD, tutorial clone, or no discernible engineering depth
+   20–25: real system design, non-trivial architecture, interesting algorithms, simulators, engines, API/backend design, ML pipeline, or domain logic
+   10–19: shows some technical effort but is mostly standard framework usage
+   0–9: basic CRUD, tutorial clone, or no discernible engineering depth
+   Give full credit when a repo clearly demonstrates deep implementation even if it has no users or deployment.
 
 4. proof_of_shipping — max 15
-   Does the repo show that something was actually built and works? Are there demos, screenshots, commit history, deployed links, or measurable outputs?
-   10–15: deployed link, screenshots/GIFs, many commits, or clear evidence of a working product
-   5–9: some commits or a demo, but limited proof
-   0–4: no demo, no screenshots, sparse commits, no deployment evidence visible
+   Does the repo show the project was actually built and works? This is NOT about production deployment.
+   10–15: runnable demo instructions, sample output, benchmark scripts, meaningful commit history, or a clearly finished build
+   5–9: project looks complete but proof is thin (no outputs shown, sparse commits)
+   0–4: looks abandoned, empty, or clearly unfinished
+   Prefer suggesting sample output, run instructions, or benchmark scripts over screenshots or GIFs. Do NOT require a live deployed URL.
 
-5. testing_reliability_quality — max 15
-   Does the repo have tests, CI/CD, linting, or other quality signals?
-   10–15: test files present and meaningful, CI config, code quality tooling
-   5–9: partial tests or only CI lint, no meaningful test coverage visible
-   0–4: no tests, no CI, no quality signals visible
+5. testing_reliability_quality (Quality signals) — max 15
+   Quality signals visible in the repo. Missing CI is normal for portfolio projects — never suggest "integrate CI" or "add GitHub Actions" as a default fix.
+   10–15: meaningful test files, benchmark scripts, lint/type config, or other evidence of careful engineering
+   5–9: minimal tests or partial quality tooling; still shows some engineering discipline
+   0–4: no quality signals AND messy structure suggesting rushed or careless work
+   Absence of CI alone should not push this below 5 if technical depth and docs are strong.
 
-6. documentation_depth — max 10
-   Beyond the README opener, is the project well documented? Architecture notes, API docs, contributing guide, inline code comments for non-obvious logic?
-   7–10: architecture explanation, API reference, contributing guide, or well-commented non-obvious code
-   3–6: minimal docs beyond README, or README is the only documentation
-   0–2: essentially undocumented
-
-7. recruiter_resume_extractability — max 10
-   Can a recruiter or the repo author extract 3 strong resume bullets within 30 seconds?
-   7–10: project value, tech stack, and engineering work are all immediately clear
-   3–6: requires effort to understand what's impressive
-   0–2: unclear value, buried implementation, or looks like a class assignment
+6. documentation_depth — max 15
+   Beyond the README opener, is the project well documented? Architecture notes, API docs, design decisions, inline comments for non-obvious logic?
+   11–15: architecture explanation, API reference, design notes, or well-commented non-obvious code
+   6–10: minimal docs beyond README, or README is the only documentation
+   0–5: essentially undocumented
 
 SCORING RULES:
 - Score only what is visible in the README, file tree, dependencies, and commit messages provided.
 - Do NOT assume tests exist unless you see test files listed.
 - Do NOT assume deployment unless you see a live link, Dockerfile/CI deploy config, or explicit mention.
 - Do NOT assume production usage, users, or metrics unless explicitly stated.
+- Do NOT penalize portfolio repos for lacking production deployment, live demos, user counts, or CI unless the README claims the product is live/shipped.
+- Do NOT score or comment on "resume extractability", "recruiter readiness", or whether the README contains resume bullets. That is out of scope.
+- A strong technical portfolio repo with clear README, runnable setup, and deep implementation can legitimately score 78–88 even without deployment or CI.
 - If something is completely absent, say "Not visible in repo" in the reason.
 - Each category score MUST be an integer from 0 up to that category's max (never above max).
-- total = sum of all 7 category scores exactly (max 100).
+- total = sum of all 6 category scores exactly (max 100).
 - label: 90–100 = "Recruiter-Ready", 80–89 = "Strong Signal", 70–79 = "Needs Polish", 60–69 = "Weak Signal", below 60 = "Not Ready Yet"
-- summary: one honest sentence about the repo's biggest strength and biggest gap.
-- strengths: exactly 3, each grounded in specific repo evidence.
-- weaknesses: exactly 3, each explaining what is missing or unclear.
-- fixes: exactly 3, each a specific, actionable improvement to the repo itself.
-- resume_positioning_tips: exactly 3, advice for how to describe this project on a resume.
+- summary: one honest sentence about the repo's biggest engineering strength and biggest repo-quality gap.
+- strengths: exactly 3, each grounded in specific repo evidence. Prioritize engineering depth, architecture, and implementation quality.
+- weaknesses: exactly 3, each a real gap in the repo itself (clarity, structure, docs, completeness, code organization, missing examples/tests). NEVER suggest adding resume bullets, a "resume section", or recruiter-facing copy to the README.
+- fixes: exactly 3, each a specific improvement to the repo (better architecture docs, runnable demo, benchmarks, clearer README, tests, project structure). NEVER suggest "add resume bullet points to the README", CI integration, deployment URLs, or screenshots/GIFs as primary fixes.
 
 Call generate_score.`
 
@@ -260,12 +261,12 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'generate_score',
-    description: 'Generate an evidence-based repo quality score for recruiter and resume purposes',
+    description: 'Generate an evidence-based repo quality score focused on engineering and repo completeness',
     parameters: {
       type: 'object',
-      required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes', 'resume_positioning_tips'],
+      required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes'],
       properties: {
-        total: { type: 'number', description: 'Sum of all 7 category scores (0–100).' },
+        total: { type: 'number', description: 'Sum of all 6 category scores (0–100).' },
         label: { type: 'string', description: 'One of: Recruiter-Ready, Strong Signal, Needs Polish, Weak Signal, Not Ready Yet' },
         summary: { type: 'string', description: 'One sentence: biggest strength + biggest gap.' },
         categories: {
@@ -273,7 +274,6 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
           required: [
             'first_impression_clarity', 'runnable_setup_dx', 'technical_depth_system_design',
             'proof_of_shipping', 'testing_reliability_quality', 'documentation_depth',
-            'recruiter_resume_extractability',
           ],
           properties: {
             first_impression_clarity: {
@@ -299,7 +299,7 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
               required: ['score', 'max', 'reason'],
               properties: {
                 score: { type: 'number' },
-                max: { type: 'number', enum: [20] },
+                max: { type: 'number', enum: [25] },
                 reason: { type: 'string' },
               },
             },
@@ -326,16 +326,7 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
               required: ['score', 'max', 'reason'],
               properties: {
                 score: { type: 'number' },
-                max: { type: 'number', enum: [10] },
-                reason: { type: 'string' },
-              },
-            },
-            recruiter_resume_extractability: {
-              type: 'object',
-              required: ['score', 'max', 'reason'],
-              properties: {
-                score: { type: 'number' },
-                max: { type: 'number', enum: [10] },
+                max: { type: 'number', enum: [15] },
                 reason: { type: 'string' },
               },
             },
@@ -353,21 +344,14 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
           items: { type: 'string' },
           minItems: 3,
           maxItems: 3,
-          description: 'Exactly 3 specific weaknesses or missing elements.',
+          description: 'Exactly 3 repo-quality weaknesses. Never suggest README resume bullets.',
         },
         fixes: {
           type: 'array',
           items: { type: 'string' },
           minItems: 3,
           maxItems: 3,
-          description: 'Exactly 3 specific, actionable repo improvements.',
-        },
-        resume_positioning_tips: {
-          type: 'array',
-          items: { type: 'string' },
-          minItems: 3,
-          maxItems: 3,
-          description: 'Exactly 3 tips for describing this project on a resume.',
+          description: 'Exactly 3 repo improvements (docs, structure, demos, tests). Never suggest README resume sections, CI, deployment, or screenshots.',
         },
       },
     },
@@ -384,12 +368,11 @@ function buildScoreMessage(ctx: RepoContext): string {
   if (ctx.fileTree.length > 0) parts.push(`File tree (sample):\n${ctx.fileTree.join('\n')}`)
   if (ctx.architectureSignals.length > 0) parts.push(`Architecture signals: ${ctx.architectureSignals.join(', ')}`)
   if (ctx.recentCommits.length > 0) parts.push(`Recent commits:\n${ctx.recentCommits.join('\n')}`)
-  parts.push(`Has CI: ${ctx.hasCI}`)
   parts.push(`Stars: ${ctx.stars}`)
   parts.push(`Forks: ${ctx.forksCount}`)
   const readmeText = ctx.readme ?? 'No README available.'
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
-  parts.push(`\nScore this repo across all 7 categories based only on the evidence above. Call generate_score.`)
+  parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only — not resume extractability. Call generate_score.`)
   return parts.join('\n')
 }
 
@@ -412,7 +395,11 @@ async function generateScore(ctx: RepoContext): Promise<RepoScore | undefined> {
 
     const raw = JSON.parse(toolCall.function.arguments) as RepoScore
     const normalized = normalizeRepoScore(raw)
-    const parsed = RepoScoreSchema.safeParse(normalized)
+    const filtered = filterRepoAdvice(normalized, {
+      hasCI: ctx.hasCI,
+      readmeClaimsShipped: readmeClaimsShippedProduct(ctx.readme),
+    })
+    const parsed = RepoScoreSchema.safeParse(filtered)
     if (!parsed.success) {
       console.error('[RepoMax] Score schema validation failed:', parsed.error.flatten())
       return undefined

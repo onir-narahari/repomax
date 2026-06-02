@@ -17,7 +17,6 @@ const RepoScoreCategoriesSchema = z.object({
   proof_of_shipping: CategoryScoreSchema,
   testing_reliability_quality: CategoryScoreSchema,
   documentation_depth: CategoryScoreSchema,
-  recruiter_resume_extractability: CategoryScoreSchema,
 })
 
 export const RepoScoreSchema = z.object({
@@ -28,7 +27,6 @@ export const RepoScoreSchema = z.object({
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   fixes: z.array(z.string()),
-  resume_positioning_tips: z.array(z.string()),
 })
 
 export const AnalyzeRequestSchema = z.object({

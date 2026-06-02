@@ -53,7 +53,6 @@ export interface RepoScoreCategories {
   proof_of_shipping: CategoryScore
   testing_reliability_quality: CategoryScore
   documentation_depth: CategoryScore
-  recruiter_resume_extractability: CategoryScore
 }
 
 export interface RepoScore {
@@ -64,7 +63,6 @@ export interface RepoScore {
   strengths: string[]
   weaknesses: string[]
   fixes: string[]
-  resume_positioning_tips: string[]
 }
 
 export interface AnalyzeResponse {

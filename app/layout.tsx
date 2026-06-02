@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -21,18 +22,18 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RepoMax — Turn your GitHub project into career content",
+  title: "RepoMax — GitHub Repo Score & Resume Bullets",
   description:
-    "Paste a public GitHub repo URL and instantly get resume bullets, a LinkedIn post, and a tweet grounded in what you actually built.",
+    "Paste a public GitHub repo. Get a Repo Score across 6 categories, see what's weak, and copy 3 resume bullets grounded in your code.",
   openGraph: {
-    title: "RepoMax",
-    description: "Turn any GitHub repo into resume bullets, LinkedIn posts, and tweets.",
+    title: "RepoMax — GitHub Repo Score & Resume Bullets",
+    description: "Score your GitHub repo across 6 categories and get resume bullets grounded in what you built.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "RepoMax",
-    description: "Turn any GitHub repo into resume bullets, LinkedIn posts, and tweets.",
+    title: "RepoMax — GitHub Repo Score & Resume Bullets",
+    description: "Score your GitHub repo across 6 categories and get resume bullets grounded in what you built.",
   },
 };
 
@@ -46,7 +47,10 @@ export default function RootLayout({
       lang="en"
       className={`${fraunces.variable} ${instrumentSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
