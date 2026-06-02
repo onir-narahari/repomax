@@ -49,7 +49,7 @@ export default function HeroRepoForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="anim-in mt-8 w-full max-w-md" style={{ animationDelay: '240ms' }}>
+    <form onSubmit={handleSubmit} className="anim-in mt-6 w-full max-w-md" style={{ animationDelay: '240ms' }}>
       <div className="flex items-center justify-between gap-2">
         <label htmlFor="hero-repo-url" className="text-[11px] font-semibold uppercase tracking-wider text-white/35">
           GitHub repo
