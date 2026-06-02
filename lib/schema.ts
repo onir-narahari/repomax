@@ -1,5 +1,36 @@
 import { z } from 'zod'
 
+const CategoryScoreSchema = z
+  .object({
+    score: z.number().int().min(0),
+    max: z.number().int().min(1),
+    reason: z.string(),
+  })
+  .refine((c) => c.score <= c.max, {
+    message: 'Category score cannot exceed max',
+  })
+
+const RepoScoreCategoriesSchema = z.object({
+  first_impression_clarity: CategoryScoreSchema,
+  runnable_setup_dx: CategoryScoreSchema,
+  technical_depth_system_design: CategoryScoreSchema,
+  proof_of_shipping: CategoryScoreSchema,
+  testing_reliability_quality: CategoryScoreSchema,
+  documentation_depth: CategoryScoreSchema,
+  recruiter_resume_extractability: CategoryScoreSchema,
+})
+
+export const RepoScoreSchema = z.object({
+  total: z.number().int().min(0).max(100),
+  label: z.string(),
+  summary: z.string(),
+  categories: RepoScoreCategoriesSchema,
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  fixes: z.array(z.string()),
+  resume_positioning_tips: z.array(z.string()),
+})
+
 export const AnalyzeRequestSchema = z.object({
   repoUrl: z
     .string()
@@ -36,9 +67,8 @@ const resumeBulletSchema = z
 
 export const AnalyzeResponseSchema = z.object({
   resumeBullets: z.array(resumeBulletSchema).min(3).max(4),
-  linkedInPost: z.string().min(300).max(1500),
-  twitterPost: z.string().min(20).max(280),
   warnings: z.array(z.string()).optional().default([]),
+  repoScore: RepoScoreSchema.optional(),
 })
 
 export type AnalyzeResponseOutput = z.infer<typeof AnalyzeResponseSchema>

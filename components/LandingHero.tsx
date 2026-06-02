@@ -28,8 +28,11 @@ export default function LandingHero() {
                 className="mb-10 max-w-[34rem] text-[1.0625rem] leading-[1.7] text-white/45 anim-in lg:text-[1.125rem]"
                 style={{ animationDelay: '180ms' }}
               >
-                Join 100+ users in &ldquo;turning repos into stories that get you
-                hired,&rdquo; grounded in what you actually shipped.
+                Paste a public repo. See your{' '}
+                <span className="text-white/70">Repo Score</span> like a recruiter
+                would. Copy{' '}
+                <span className="text-white/70">3 resume bullets</span> straight to
+                your application.
               </p>
 
               <div className="anim-in" style={{ animationDelay: '260ms' }}>

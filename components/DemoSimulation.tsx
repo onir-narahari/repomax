@@ -2,7 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Briefcase, Check, FileText, GitFork, MessageCircle } from 'lucide-react'
+import { BarChart2, Check, FileText, GitFork } from 'lucide-react'
+
+const SCORE = {
+  total: 82,
+  label: 'Strong Signal',
+  summary: 'Solid LLM routing and API design — lacks deployment evidence and test coverage.',
+  strengths: ['LLM routing architecture', 'FastAPI API design', 'Structured data pipeline'],
+  categories: [
+    { label: 'First-Impression Clarity', score: 13, max: 15, pct: 87 },
+    { label: 'Technical Depth & Design', score: 18, max: 20, pct: 90 },
+    { label: 'Documentation Depth',      score:  8, max: 10, pct: 80 },
+    { label: 'Proof of Shipping',        score: 11, max: 15, pct: 73 },
+    { label: 'Testing & Quality Gates',  score:  7, max: 15, pct: 47 },
+  ],
+}
 
 const RESUME_BULLETS = [
   'Built a FastAPI-based stock analysis platform integrating financial APIs, valuation logic, and LLM query routing to generate natural-language equity research responses',
@@ -10,25 +24,20 @@ const RESUME_BULLETS = [
   'Designed intent-based routing across valuation, financials, news, and peer comparison paths using FastAPI route handlers and structured LLM query dispatch',
 ]
 
-const LINKEDIN_POST = `I built an AI stock research tool that turns natural-language questions into valuation, financials, news, and peer comparison insights.
-
-The project uses FastAPI, financial data APIs, and LLM routing to understand what a user is asking, fetch the right market data, and generate a clear response.
-
-Biggest lesson: building useful AI products is less about the model and more about the data pipeline.`
-
-const X_POST = `Built an AI stock analysis app.
-
-Ask "NVDA vs AMD" or "is AAPL undervalued?" and get valuation, news, and financial insights.
-
-FastAPI + financial APIs + LLM routing.`
-
 const STEPS = [
   'Reading README',
   'Detecting tech stack',
   'Extracting key features',
-  'Ranking resume-worthy details',
-  'Writing project story',
+  'Scoring repo quality',
+  'Writing resume bullets',
 ]
+
+function catBarColor(pct: number) {
+  if (pct >= 88) return 'bg-emerald-400'
+  if (pct >= 72) return 'bg-blue-400'
+  if (pct >= 55) return 'bg-amber-400'
+  return 'bg-orange-400'
+}
 
 export default function DemoSimulation() {
   const sectionRef = useRef<HTMLDivElement>(null)
@@ -38,7 +47,6 @@ export default function DemoSimulation() {
   useEffect(() => {
     const el = sectionRef.current
     if (!el) return
-
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -48,7 +56,6 @@ export default function DemoSimulation() {
       },
       { threshold: 0.25 }
     )
-
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
@@ -80,6 +87,9 @@ export default function DemoSimulation() {
         @keyframes demoSimBarPulse {
           0%, 100% { opacity: 0.45; }
           50% { opacity: 1; }
+        }
+        @keyframes demoSimBarGrow {
+          from { width: 0; }
         }
 
         .demo-sim-run .demo-sim-typewriter {
@@ -120,12 +130,19 @@ export default function DemoSimulation() {
           opacity: 0;
           animation: demoSimCardIn 0.45s ease forwards;
         }
+        .demo-sim-run .demo-sim-cat-bar {
+          width: 0;
+          animation: demoSimBarGrow 0.55s ease forwards;
+        }
 
         .demo-sim-idle .demo-sim-output,
         .demo-sim-idle .demo-sim-step,
         .demo-sim-idle .demo-sim-analyzing-wrap,
         .demo-sim-idle .demo-sim-analyzing-text {
           opacity: 0;
+        }
+        .demo-sim-idle .demo-sim-cat-bar {
+          width: 0;
         }
       `}</style>
 
@@ -138,12 +155,10 @@ export default function DemoSimulation() {
         </p>
       </div>
 
-      <div
-        key={runId}
-        className={hasStarted ? 'demo-sim-run' : 'demo-sim-idle'}
-      >
+      <div key={runId} className={hasStarted ? 'demo-sim-run' : 'demo-sim-idle'}>
         <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-[2fr_3fr] md:gap-6 lg:gap-8">
-          {/* Left: typing + process */}
+
+          {/* Left: input + process */}
           <div className="flex flex-col gap-3 md:pr-2 sm:gap-4">
             <div
               className="rounded-xl border border-[#1E3A5F] bg-[#0A0F1E] p-4 sm:rounded-2xl sm:p-5"
@@ -162,7 +177,6 @@ export default function DemoSimulation() {
                 </span>
                 <span className="demo-sim-cursor" />
               </div>
-
               <div className="demo-sim-analyzing-wrap mt-3 overflow-hidden rounded-full bg-blue-500/10">
                 <div
                   className="demo-sim-analyzing-bar h-1 rounded-full bg-blue-500/50"
@@ -204,60 +218,102 @@ export default function DemoSimulation() {
             </div>
           </div>
 
-          {/* Right: outputs */}
+          {/* Right: 3 output cards at ~0.25s stagger */}
           <div className="flex flex-col gap-3 sm:gap-3.5">
+
+            {/* Card 1 — Score header (2.4s) */}
             <div
               className="demo-sim-output rounded-xl border border-[#1E3A5F] bg-[#0A0F1E] p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500/40 hover:shadow-[0_0_24px_rgba(59,130,246,0.12)] sm:rounded-2xl sm:p-4"
               style={{ animationDelay: '2.4s', boxShadow: '0 0 32px rgba(59,130,246,0.05)' }}
             >
-              <div className="mb-2 flex items-center gap-1.5 sm:mb-2.5">
-                <FileText className="h-3.5 w-3.5 text-blue-400" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 sm:text-[11px]">
-                  Resume Bullets
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <BarChart2 className="h-3.5 w-3.5 text-blue-400" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 sm:text-[11px]">
+                    Repo Score
+                  </span>
+                </div>
+                <span className="inline-flex items-center rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-0.5 text-[10px] font-semibold text-blue-300">
+                  {SCORE.label}
                 </span>
               </div>
-              <ul className="space-y-2 sm:space-y-2.5">
-                {RESUME_BULLETS.map((bullet, i) => (
-                  <li
-                    key={i}
-                    className="flex gap-2 text-[11px] leading-snug text-white/70 sm:text-xs sm:leading-relaxed"
+              <div className="mt-2.5 flex items-end gap-3">
+                <div className="flex items-baseline gap-0.5 leading-none">
+                  <span className="text-4xl font-bold tabular-nums text-blue-400">{SCORE.total}</span>
+                  <span className="text-base font-light text-white/30">/100</span>
+                </div>
+                <p className="mb-0.5 text-[10px] leading-snug text-white/45 sm:text-[11px]">
+                  {SCORE.summary}
+                </p>
+              </div>
+              <div className="mt-2.5 flex flex-wrap gap-1">
+                {SCORE.strengths.map((s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/8 px-2 py-0.5 text-[10px] text-emerald-400"
                   >
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-blue-400 sm:mt-2 sm:h-1.5 sm:w-1.5" />
-                    {bullet}
-                  </li>
+                    <span className="text-[8px]">✓</span>{s}
+                  </span>
                 ))}
-              </ul>
+              </div>
             </div>
 
+            {/* Cards 2 + 3 — side by side (matching LinkedIn + X layout) */}
             <div className="grid grid-cols-1 gap-3 sm:gap-3.5 lg:grid-cols-2">
+
+              {/* Card 2 — Category bars (2.65s) */}
               <div
                 className="demo-sim-output rounded-xl border border-[#1E3A5F] bg-[#0A0F1E] p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500/40 hover:shadow-[0_0_24px_rgba(59,130,246,0.12)] sm:rounded-2xl sm:p-4"
                 style={{ animationDelay: '2.65s', boxShadow: '0 0 32px rgba(59,130,246,0.05)' }}
               >
-                <div className="mb-2 flex items-center gap-1.5 sm:mb-2.5">
-                  <Briefcase className="h-3.5 w-3.5 text-blue-400" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 sm:text-[11px]">
-                    LinkedIn Post
-                  </span>
-                </div>
-                <p className="whitespace-pre-wrap text-[11px] leading-snug text-white/65 sm:text-xs sm:leading-relaxed">
-                  {LINKEDIN_POST}
+                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 sm:text-[11px]">
+                  Score Breakdown
                 </p>
+                <div className="space-y-2">
+                  {SCORE.categories.map((cat, i) => (
+                    <div key={cat.label} className="space-y-0.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="truncate text-[10px] text-white/50">{cat.label}</span>
+                        <span className="shrink-0 text-[10px] tabular-nums text-white/55">
+                          {cat.score}/{cat.max}
+                        </span>
+                      </div>
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-white/8">
+                        <div
+                          className={`demo-sim-cat-bar h-full rounded-full ${catBarColor(cat.pct)}`}
+                          style={{
+                            animationDelay: `${2.75 + i * 0.1}s`,
+                            width: `${cat.pct}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
+              {/* Card 3 — Resume Bullets (2.9s) */}
               <div
                 className="demo-sim-output rounded-xl border border-[#1E3A5F] bg-[#0A0F1E] p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500/40 hover:shadow-[0_0_24px_rgba(59,130,246,0.12)] sm:rounded-2xl sm:p-4"
                 style={{ animationDelay: '2.9s', boxShadow: '0 0 32px rgba(59,130,246,0.05)' }}
               >
                 <div className="mb-2 flex items-center gap-1.5 sm:mb-2.5">
-                  <MessageCircle className="h-3.5 w-3.5 text-blue-400" />
+                  <FileText className="h-3.5 w-3.5 text-blue-400" />
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 sm:text-[11px]">
-                    X Post
+                    Resume Bullets
                   </span>
                 </div>
-                <p className="whitespace-pre-wrap text-[11px] leading-snug text-white/65 sm:text-xs sm:leading-relaxed">
-                  {X_POST}
-                </p>
+                <ul className="space-y-2 sm:space-y-2.5">
+                  {RESUME_BULLETS.map((bullet, i) => (
+                    <li
+                      key={i}
+                      className="flex gap-2 text-[11px] leading-snug text-white/70 sm:text-xs sm:leading-relaxed"
+                    >
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-blue-400 sm:mt-2 sm:h-1.5 sm:w-1.5" />
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           </div>

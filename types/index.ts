@@ -40,11 +40,37 @@ export interface AnalyzeRequest {
   targetRole?: string
 }
 
+export interface CategoryScore {
+  score: number
+  max: number
+  reason: string
+}
+
+export interface RepoScoreCategories {
+  first_impression_clarity: CategoryScore
+  runnable_setup_dx: CategoryScore
+  technical_depth_system_design: CategoryScore
+  proof_of_shipping: CategoryScore
+  testing_reliability_quality: CategoryScore
+  documentation_depth: CategoryScore
+  recruiter_resume_extractability: CategoryScore
+}
+
+export interface RepoScore {
+  total: number
+  label: string
+  summary: string
+  categories: RepoScoreCategories
+  strengths: string[]
+  weaknesses: string[]
+  fixes: string[]
+  resume_positioning_tips: string[]
+}
+
 export interface AnalyzeResponse {
   resumeBullets: [string, string, string]
-  linkedInPost: string
-  twitterPost: string
   warnings: string[]
+  repoScore?: RepoScore
 }
 
 export type AppErrorCode =

@@ -19,7 +19,8 @@ const LOADING_LABELS = [
   'Reading your repository…',
   'Extracting project signals…',
   'Writing resume bullets…',
-  'Polishing your story…',
+  'Scoring your repo…',
+  'Finalizing results…',
 ]
 
 function InputLoading() {
@@ -160,7 +161,7 @@ export default function GeneratePage() {
                     Generating
                   </span>
                 ) : (
-                  'Generate story →'
+                  'Score my repo →'
                 )}
               </button>
             </div>
@@ -183,7 +184,7 @@ export default function GeneratePage() {
         {/* Output */}
         {!isLoading && (
           <div className="anim-in" style={{ animationDelay: '100ms' }}>
-            <OutputTabs data={results} />
+            <OutputTabs data={results} repoUrl={submittedUrl} />
           </div>
         )}
 

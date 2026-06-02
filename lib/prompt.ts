@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
-import type { RepoContext } from '@/types'
-import { AnalyzeResponseSchema, type AnalyzeResponseOutput } from './schema'
+import type { RepoContext, RepoScore } from '@/types'
+import { normalizeRepoScore } from './repo-score'
+import { AnalyzeResponseSchema, RepoScoreSchema, type AnalyzeResponseOutput } from './schema'
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -188,112 +189,238 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
   return result
 }
 
-// ─── Posts from finalized bullets ────────────────────────────────────────────
 
-const POSTS_SYSTEM_PROMPT = `You are a content writer for software developers. You write LinkedIn posts and X/Twitter posts that sound like a real builder sharing a project.
+// ─── Repo scoring ─────────────────────────────────────────────────────────────
 
-You receive finalized resume bullets that describe the project accurately. Use them as your sole source of truth for technical claims, features, and metrics.
+const SCORE_SYSTEM_PROMPT = `You are a senior software engineer and technical recruiter auditing a GitHub repository.
 
-LINKEDIN POST RULES:
-- 150–250 words, human and conversational
-- Open with a specific hook about what was built or the problem it solves
-- Mention the most interesting technical implementation detail from the bullets
-- Include a lesson learned or engineering insight
-- End with a question or call-to-action
-- 3–5 relevant hashtags only
-- Do NOT open with "I am thrilled to announce" or "Excited to share"
-- Do NOT sound like a press release
+Score this repo across 7 categories. Each category has a max score listed below.
 
-X/TWITTER POST RULES:
-- 280 characters total maximum
-- Strong specific first line — name the project and what it does
-- One concrete technical detail drawn from the bullets
-- 0–2 hashtags max
-- Sound like a builder posting, not a marketer announcing
+CATEGORIES (total max = 100):
+1. first_impression_clarity — max 15
+   Does the README immediately explain what the project does, who it's for, and what problem it solves?
+   10–15: clear project summary, audience, and purpose in first scroll
+   5–9: partially explains the project but requires reading to understand
+   0–4: confusing, empty, or generic README opener
 
-TRUTH RULE: Only reference technical details, features, and metrics present in the provided bullets. Do not invent anything new.`
+2. runnable_setup_dx — max 15
+   Can a developer clone and run this project without guessing? Are setup instructions present and complete?
+   10–15: clear install + run steps, environment setup, prerequisites
+   5–9: partial setup instructions, missing steps or env config
+   0–4: no setup instructions or clearly broken/missing instructions
 
-const POSTS_TOOL: OpenAI.Chat.ChatCompletionTool = {
+3. technical_depth_system_design — max 20
+   Does the code show meaningful engineering work beyond basic CRUD or tutorial-following?
+   15–20: real system design, non-trivial architecture, interesting algorithms, API/backend design, ML pipeline, or domain logic
+   8–14: shows some technical effort but is mostly standard framework usage
+   0–7: basic CRUD, tutorial clone, or no discernible engineering depth
+
+4. proof_of_shipping — max 15
+   Does the repo show that something was actually built and works? Are there demos, screenshots, commit history, deployed links, or measurable outputs?
+   10–15: deployed link, screenshots/GIFs, many commits, or clear evidence of a working product
+   5–9: some commits or a demo, but limited proof
+   0–4: no demo, no screenshots, sparse commits, no deployment evidence visible
+
+5. testing_reliability_quality — max 15
+   Does the repo have tests, CI/CD, linting, or other quality signals?
+   10–15: test files present and meaningful, CI config, code quality tooling
+   5–9: partial tests or only CI lint, no meaningful test coverage visible
+   0–4: no tests, no CI, no quality signals visible
+
+6. documentation_depth — max 10
+   Beyond the README opener, is the project well documented? Architecture notes, API docs, contributing guide, inline code comments for non-obvious logic?
+   7–10: architecture explanation, API reference, contributing guide, or well-commented non-obvious code
+   3–6: minimal docs beyond README, or README is the only documentation
+   0–2: essentially undocumented
+
+7. recruiter_resume_extractability — max 10
+   Can a recruiter or the repo author extract 3 strong resume bullets within 30 seconds?
+   7–10: project value, tech stack, and engineering work are all immediately clear
+   3–6: requires effort to understand what's impressive
+   0–2: unclear value, buried implementation, or looks like a class assignment
+
+SCORING RULES:
+- Score only what is visible in the README, file tree, dependencies, and commit messages provided.
+- Do NOT assume tests exist unless you see test files listed.
+- Do NOT assume deployment unless you see a live link, Dockerfile/CI deploy config, or explicit mention.
+- Do NOT assume production usage, users, or metrics unless explicitly stated.
+- If something is completely absent, say "Not visible in repo" in the reason.
+- Each category score MUST be an integer from 0 up to that category's max (never above max).
+- total = sum of all 7 category scores exactly (max 100).
+- label: 90–100 = "Recruiter-Ready", 80–89 = "Strong Signal", 70–79 = "Needs Polish", 60–69 = "Weak Signal", below 60 = "Not Ready Yet"
+- summary: one honest sentence about the repo's biggest strength and biggest gap.
+- strengths: exactly 3, each grounded in specific repo evidence.
+- weaknesses: exactly 3, each explaining what is missing or unclear.
+- fixes: exactly 3, each a specific, actionable improvement to the repo itself.
+- resume_positioning_tips: exactly 3, advice for how to describe this project on a resume.
+
+Call generate_score.`
+
+const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
   function: {
-    name: 'generate_posts',
-    description: 'Generate LinkedIn and X/Twitter posts anchored to the finalized resume bullets',
+    name: 'generate_score',
+    description: 'Generate an evidence-based repo quality score for recruiter and resume purposes',
     parameters: {
       type: 'object',
-      required: ['linkedInPost', 'twitterPost'],
+      required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes', 'resume_positioning_tips'],
       properties: {
-        linkedInPost: {
-          type: 'string',
-          description: '150–250 word LinkedIn post grounded in the provided bullets',
+        total: { type: 'number', description: 'Sum of all 7 category scores (0–100).' },
+        label: { type: 'string', description: 'One of: Recruiter-Ready, Strong Signal, Needs Polish, Weak Signal, Not Ready Yet' },
+        summary: { type: 'string', description: 'One sentence: biggest strength + biggest gap.' },
+        categories: {
+          type: 'object',
+          required: [
+            'first_impression_clarity', 'runnable_setup_dx', 'technical_depth_system_design',
+            'proof_of_shipping', 'testing_reliability_quality', 'documentation_depth',
+            'recruiter_resume_extractability',
+          ],
+          properties: {
+            first_impression_clarity: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [15] },
+                reason: { type: 'string' },
+              },
+            },
+            runnable_setup_dx: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [15] },
+                reason: { type: 'string' },
+              },
+            },
+            technical_depth_system_design: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [20] },
+                reason: { type: 'string' },
+              },
+            },
+            proof_of_shipping: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [15] },
+                reason: { type: 'string' },
+              },
+            },
+            testing_reliability_quality: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [15] },
+                reason: { type: 'string' },
+              },
+            },
+            documentation_depth: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [10] },
+                reason: { type: 'string' },
+              },
+            },
+            recruiter_resume_extractability: {
+              type: 'object',
+              required: ['score', 'max', 'reason'],
+              properties: {
+                score: { type: 'number' },
+                max: { type: 'number', enum: [10] },
+                reason: { type: 'string' },
+              },
+            },
+          },
         },
-        twitterPost: {
-          type: 'string',
-          maxLength: 280,
-          description: 'Tweet of ≤280 characters grounded in the provided bullets',
-        },
-        warnings: {
+        strengths: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Only warn if missing info limits post quality. Leave empty if not needed. Never emit meta-commentary about instructions.',
+          minItems: 3,
+          maxItems: 3,
+          description: 'Exactly 3 specific strengths grounded in repo evidence.',
+        },
+        weaknesses: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 3,
+          maxItems: 3,
+          description: 'Exactly 3 specific weaknesses or missing elements.',
+        },
+        fixes: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 3,
+          maxItems: 3,
+          description: 'Exactly 3 specific, actionable repo improvements.',
+        },
+        resume_positioning_tips: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 3,
+          maxItems: 3,
+          description: 'Exactly 3 tips for describing this project on a resume.',
         },
       },
     },
   },
 }
 
-function filterPostWarnings(warnings: string[]): string[] {
-  return warnings.filter((w) => {
-    const lower = w.toLowerCase()
-    return !(
-      lower.includes('not used') ||
-      lower.includes('project context') ||
-      lower.includes('was not part of') ||
-      lower.includes('finalized resume bullets')
-    )
-  })
-}
-
-function buildPostsMessage(bulletsResult: BulletsResult): string {
+function buildScoreMessage(ctx: RepoContext): string {
   const parts: string[] = []
-
-  parts.push(`=== RESUME BULLETS ===`)
-  bulletsResult.resumeBullets.forEach((b, i) => parts.push(`${i + 1}. ${b}`))
-
-  parts.push(`\nWrite a LinkedIn post and an X/Twitter post using only the bullets above. Call generate_posts.`)
-
-  return parts.join('\n\n')
+  parts.push(`Repo: ${ctx.name}`)
+  if (ctx.description) parts.push(`Description: ${ctx.description}`)
+  if (ctx.primaryLanguage) parts.push(`Primary language: ${ctx.primaryLanguage}`)
+  if (ctx.topics.length > 0) parts.push(`Topics: ${ctx.topics.join(', ')}`)
+  if (ctx.dependencies.length > 0) parts.push(`Dependencies: ${ctx.dependencies.join(', ')}`)
+  if (ctx.fileTree.length > 0) parts.push(`File tree (sample):\n${ctx.fileTree.join('\n')}`)
+  if (ctx.architectureSignals.length > 0) parts.push(`Architecture signals: ${ctx.architectureSignals.join(', ')}`)
+  if (ctx.recentCommits.length > 0) parts.push(`Recent commits:\n${ctx.recentCommits.join('\n')}`)
+  parts.push(`Has CI: ${ctx.hasCI}`)
+  parts.push(`Stars: ${ctx.stars}`)
+  parts.push(`Forks: ${ctx.forksCount}`)
+  const readmeText = ctx.readme ?? 'No README available.'
+  parts.push(`\nREADME:\n---\n${readmeText}\n---`)
+  parts.push(`\nScore this repo across all 7 categories based only on the evidence above. Call generate_score.`)
+  return parts.join('\n')
 }
 
-async function generatePostsFromBullets(postsMsg: string): Promise<{
-  linkedInPost: string
-  twitterPost: string
-  warnings: string[]
-}> {
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0.5,
-    max_tokens: 700,
-    messages: [
-      { role: 'system', content: POSTS_SYSTEM_PROMPT },
-      { role: 'user', content: postsMsg },
-    ],
-    tools: [POSTS_TOOL],
-    tool_choice: { type: 'function', function: { name: 'generate_posts' } },
-  })
+async function generateScore(ctx: RepoContext): Promise<RepoScore | undefined> {
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.3,
+      max_tokens: 1400,
+      messages: [
+        { role: 'system', content: SCORE_SYSTEM_PROMPT },
+        { role: 'user', content: buildScoreMessage(ctx) },
+      ],
+      tools: [SCORE_TOOL],
+      tool_choice: { type: 'function', function: { name: 'generate_score' } },
+    })
 
-  const toolCall = response.choices[0]?.message?.tool_calls?.[0]
-  if (!toolCall || toolCall.type !== 'function') throw new Error('LLM_ERROR')
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0]
+    if (!toolCall || toolCall.type !== 'function') return undefined
 
-  const result = JSON.parse(toolCall.function.arguments) as {
-    linkedInPost: string
-    twitterPost: string
-    warnings?: string[]
-  }
-
-  return {
-    linkedInPost: result.linkedInPost,
-    twitterPost: result.twitterPost,
-    warnings: result.warnings ?? [],
+    const raw = JSON.parse(toolCall.function.arguments) as RepoScore
+    const normalized = normalizeRepoScore(raw)
+    const parsed = RepoScoreSchema.safeParse(normalized)
+    if (!parsed.success) {
+      console.error('[RepoMax] Score schema validation failed:', parsed.error.flatten())
+      return undefined
+    }
+    return parsed.data
+  } catch (err) {
+    console.error('[RepoMax] Score generation error:', err)
+    return undefined
   }
 }
 
@@ -304,25 +431,25 @@ export async function generateContent(
   targetRole?: string
 ): Promise<AnalyzeResponseOutput> {
   const bulletMsg = buildBulletMessage(ctx, targetRole)
-  const bulletsResult = await generateBulletsFirst(bulletMsg)
 
-  const postsMsg = buildPostsMessage(bulletsResult)
-  const posts = await generatePostsFromBullets(postsMsg)
+  // Run bullets and scoring in parallel
+  const [bulletsResult, repoScore] = await Promise.all([
+    generateBulletsFirst(bulletMsg),
+    generateScore(ctx),
+  ])
 
-  // Validate final output shape
   const parsed = AnalyzeResponseSchema.safeParse({
     resumeBullets: bulletsResult.resumeBullets,
-    linkedInPost: posts.linkedInPost,
-    twitterPost: posts.twitterPost,
     warnings: [],
+    repoScore,
   })
 
   const resumeBullets = parsed.success
     ? parsed.data.resumeBullets
     : bulletsResult.resumeBullets.slice(0, 3)
 
-  const allWarnings = [...new Set([...ctx.warnings, ...filterPostWarnings(posts.warnings)])]
-  return { resumeBullets, linkedInPost: posts.linkedInPost, twitterPost: posts.twitterPost, warnings: allWarnings }
+  const allWarnings = [...new Set([...ctx.warnings])]
+  return { resumeBullets, warnings: allWarnings, repoScore }
 }
 
 // ─── Exported helpers (used by tests / external callers) ─────────────────────
