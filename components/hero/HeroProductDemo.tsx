@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BarChart2, FileText, GitFork } from 'lucide-react'
+import { FileText, GitFork } from 'lucide-react'
 import ScoreRing from '@/components/hero/ScoreRing'
 import {
   MOCK_BULLET_COUNT,
@@ -20,7 +20,6 @@ const SCORE_THEME = mockScoreTheme(MOCK_SCORE.total)
 const FIX_ACCENTS = [
   'border-red-400/35 bg-red-500/10 text-red-300',
   'border-orange-400/35 bg-orange-500/10 text-orange-300',
-  'border-amber-400/35 bg-amber-500/10 text-amber-300',
 ] as const
 
 export default function HeroProductDemo() {
@@ -46,12 +45,12 @@ export default function HeroProductDemo() {
           from { opacity: 0; transform: translateY(6px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes heroDemoBarGrow {
-          from { width: 0; }
-        }
         @keyframes heroDemoPulse {
           0%, 100% { opacity: 0.5; }
           50% { opacity: 1; }
+        }
+        @keyframes heroDemoBarGrow {
+          from { width: 0; }
         }
         @keyframes heroDemoCursorHide {
           0%, 80% { opacity: 1; }
@@ -125,73 +124,64 @@ export default function HeroProductDemo() {
           <p className="hero-demo-loading mt-1.5 text-[10px] text-blue-400/60">Analyzing repository…</p>
         </div>
 
-        <div className="hero-demo-result px-4 pb-4 pt-3">
-          <div className="rounded-xl bg-gradient-to-br from-red-500/20 via-[#1E3A5F]/30 to-blue-500/15 p-px">
-            <div className="rounded-xl bg-[#0A0F1E] p-3.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <BarChart2 className="h-3.5 w-3.5 text-blue-400" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400/80">
-                    Repo Score
+        <div className="hero-demo-result min-h-[17.5rem] bg-gradient-to-br from-red-500/15 via-[#1E3A5F]/25 to-blue-500/10 px-4 pb-5 pt-4">
+          <div className="flex items-start gap-3">
+            <ScoreRing
+              score={MOCK_SCORE.total}
+              scoreClassName={SCORE_THEME.score}
+              ringClassName={SCORE_THEME.score}
+              size="lg"
+            />
+            <div className="min-w-0 pt-1">
+              <p className="text-[11px] leading-snug text-white/50">{MOCK_SCORE.summary}</p>
+              <span
+                className={`mt-2 inline-block rounded-full border px-2.5 py-1 text-xs font-semibold ${SCORE_THEME.badge}`}
+              >
+                {MOCK_SCORE.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2 border-t border-white/8 pt-3">
+            {PREVIEW_CATS.map((cat, i) => (
+              <div key={cat.label} className="space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate text-[10px] text-white/50">{cat.label}</span>
+                  <span className="text-[10px] tabular-nums text-white/55">
+                    {cat.score}/{cat.max}
                   </span>
                 </div>
-                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${SCORE_THEME.badge}`}>
-                  {MOCK_SCORE.label}
+                <div className="h-1 overflow-hidden rounded-full bg-white/8">
+                  <div
+                    className={`hero-demo-bar h-full rounded-full ${mockBarColor(cat.pct)}`}
+                    style={{ animationDelay: `${1.55 + i * 0.06}s`, width: `${cat.pct}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <ul className="mt-3 space-y-2.5 border-t border-white/8 pt-3">
+            {MOCK_FIXES.slice(0, 2).map((item, i) => (
+              <li key={item.issue} className="flex gap-2.5">
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${FIX_ACCENTS[i]}`}
+                >
+                  {i + 1}
                 </span>
-              </div>
+                <span className="text-[0.8125rem] leading-snug text-white/55">{item.issue}</span>
+              </li>
+            ))}
+          </ul>
 
-              <div className="mt-2.5 flex items-center gap-3">
-                <ScoreRing
-                  score={MOCK_SCORE.total}
-                  scoreClassName={SCORE_THEME.score}
-                  ringClassName={SCORE_THEME.score}
-                  size="sm"
-                />
-                <p className="text-[10px] leading-snug text-white/45">{MOCK_SCORE.summary}</p>
-              </div>
-
-              <div className="mt-3 space-y-2 border-t border-white/8 pt-3">
-                {PREVIEW_CATS.map((cat, i) => (
-                  <div key={cat.label} className="space-y-0.5">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate text-[10px] text-white/50">{cat.label}</span>
-                      <span className="text-[10px] tabular-nums text-white/55">
-                        {cat.score}/{cat.max}
-                      </span>
-                    </div>
-                    <div className="h-1 overflow-hidden rounded-full bg-white/8">
-                      <div
-                        className={`hero-demo-bar h-full rounded-full ${mockBarColor(cat.pct)}`}
-                        style={{ animationDelay: `${1.55 + i * 0.06}s`, width: `${cat.pct}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <ul className="mt-3 space-y-1.5 border-t border-white/8 pt-3">
-                {MOCK_FIXES.slice(0, 2).map((item, i) => (
-                  <li key={item.issue} className="flex gap-2">
-                    <span
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[8px] font-bold ${FIX_ACCENTS[i]}`}
-                    >
-                      {i + 1}
-                    </span>
-                    <span className="text-[10px] leading-snug text-white/50">{item.issue}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-500/12 bg-blue-500/5 px-2.5 py-2">
-                <FileText className="mt-0.5 h-3 w-3 shrink-0 text-blue-400/80" />
-                <p className="text-[10px] leading-snug text-white/50">
-                  <span className="text-blue-300/80">3 resume bullets</span>
-                  {' · '}
-                  {MOCK_BULLET_PREVIEW.slice(0, 52)}…{' '}
-                  <span className="text-blue-400/70">+{MOCK_BULLET_COUNT - 1}</span>
-                </p>
-              </div>
-            </div>
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-500/12 bg-blue-500/5 px-2.5 py-2">
+            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-blue-400/80" />
+            <p className="text-[10px] leading-snug text-white/50">
+              <span className="text-blue-300/80">{MOCK_BULLET_COUNT} resume bullets</span>
+              {' · '}
+              {MOCK_BULLET_PREVIEW.slice(0, 52)}…{' '}
+              <span className="text-blue-400/70">+{MOCK_BULLET_COUNT - 1}</span>
+            </p>
           </div>
         </div>
       </div>

@@ -9,7 +9,7 @@ export const MOCK_SCORE = {
   total: 57,
   label: 'Weak Signal',
   summary:
-    'Repo gives a screener no proof it runs, no setup steps, and no clear opener. Common fix: tighten the README.',
+    'Recruiter gets no proof it runs, no setup steps, and no clear opener.',
   strengths: [] as string[],
   categories: [
     { label: 'First impression', score: 8, max: 15 },

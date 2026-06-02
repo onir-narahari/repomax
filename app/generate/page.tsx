@@ -194,7 +194,7 @@ function GeneratePageContent() {
       <header className="relative z-20 border-b border-[#242B3A] bg-[#070A12]/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-8">
           <Link href="/" className="transition-opacity hover:opacity-80">
-            <Wordmark variant="generate" className="text-lg font-bold tracking-tight" />
+            <Wordmark variant="generate" className="text-xl font-bold tracking-tight sm:text-2xl" />
           </Link>
           <Link
             href="/"

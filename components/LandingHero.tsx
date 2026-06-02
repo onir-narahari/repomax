@@ -6,13 +6,13 @@ import HeroExampleLink from '@/components/hero/HeroExampleLink'
 
 export default function LandingHero() {
   return (
-    <section className="relative flex min-h-screen flex-col overflow-hidden bg-[#0a1020]">
+    <section id="top" className="relative flex min-h-screen flex-col overflow-hidden bg-[#0a1020]">
       <HeroBackground />
 
       <nav className="absolute inset-x-0 top-0 z-20 anim-in">
         <div className="mx-auto max-w-[82rem] px-6 sm:px-10 lg:px-12 xl:px-14">
           <div className="py-7 lg:py-8">
-            <Wordmark className="text-lg font-bold tracking-tight text-[#F4F0E8] sm:text-xl" />
+            <Wordmark className="text-xl font-bold tracking-tight text-[#F4F0E8] sm:text-2xl lg:text-[1.75rem]" />
           </div>
         </div>
       </nav>
