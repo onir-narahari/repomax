@@ -37,10 +37,6 @@ export default function HeroProductDemo() {
   return (
     <div className="w-full max-w-md xl:max-w-[28rem]" aria-hidden="true">
       <style>{`
-        @keyframes heroDemoType {
-          from { width: 0; }
-          to { width: 100%; }
-        }
         @keyframes heroDemoFadeUp {
           from { opacity: 0; transform: translateY(6px); }
           to { opacity: 1; transform: translateY(0); }
@@ -52,38 +48,18 @@ export default function HeroProductDemo() {
         @keyframes heroDemoBarGrow {
           from { width: 0; }
         }
-        @keyframes heroDemoCursorHide {
-          0%, 80% { opacity: 1; }
-          100% { opacity: 0; }
-        }
 
-        .hero-demo-run .hero-demo-type {
-          display: inline-block;
-          overflow: hidden;
-          white-space: nowrap;
-          width: 0;
-          animation: heroDemoType 0.8s steps(24, end) 0.6s forwards;
-        }
-        .hero-demo-run .hero-demo-cursor {
-          display: inline-block;
-          width: 1.5px;
-          height: 0.85em;
-          background: #60a5fa;
-          vertical-align: middle;
-          margin-left: 1px;
-          animation: heroDemoCursorHide 0.2s ease forwards 1.5s;
-        }
         .hero-demo-run .hero-demo-loading {
           opacity: 0;
-          animation: heroDemoFadeUp 0.3s ease forwards 1.1s;
+          animation: heroDemoFadeUp 0.3s ease forwards 0.2s;
         }
         .hero-demo-run .hero-demo-loading-bar {
           animation: heroDemoPulse 0.9s ease-in-out infinite;
-          animation-delay: 1.1s;
+          animation-delay: 0.2s;
         }
         .hero-demo-run .hero-demo-result {
           opacity: 0;
-          animation: heroDemoFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards 1.45s;
+          animation: heroDemoFadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards 1.6s;
         }
         .hero-demo-run .hero-demo-bar {
           width: 0;
@@ -115,8 +91,7 @@ export default function HeroProductDemo() {
           </div>
           <div className="flex items-center rounded-lg border border-blue-500/20 bg-[#050508] px-3 py-2.5">
             <span className="font-mono text-[11px] text-white/30">github.com/</span>
-            <span className="hero-demo-type font-mono text-[11px] text-white/85">{MOCK_REPO_SLUG}</span>
-            <span className="hero-demo-cursor" />
+            <span className="font-mono text-[11px] text-white/85">{MOCK_REPO_SLUG}</span>
           </div>
           <div className="hero-demo-loading mt-2.5 overflow-hidden rounded-full bg-blue-500/10">
             <div className="hero-demo-loading-bar h-1 w-[55%] rounded-full bg-blue-500/50" />
@@ -154,7 +129,7 @@ export default function HeroProductDemo() {
                 <div className="h-1 overflow-hidden rounded-full bg-white/8">
                   <div
                     className={`hero-demo-bar h-full rounded-full ${mockBarColor(cat.pct)}`}
-                    style={{ animationDelay: `${1.55 + i * 0.06}s`, width: `${cat.pct}%` }}
+                    style={{ animationDelay: `${1.7 + i * 0.06}s`, width: `${cat.pct}%` }}
                   />
                 </div>
               </div>

@@ -1,5 +1,6 @@
 'use client'
 
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import OutputCard from '@/components/OutputCard'
 import RepoScoreCard from '@/components/RepoScoreCard'
@@ -87,7 +88,14 @@ export default function OutputTabs({ data, repoUrl, isLoading = false }: Props) 
         </div>
       )}
 
-      <PillTabBar tabs={tabs} active={activeTab} onSelect={setActiveTab} />
+      <PillTabBar
+        tabs={tabs}
+        active={activeTab}
+        onSelect={(id) => {
+          posthog.capture('output_tab_switched', { tab: id, previous_tab: activeTab })
+          setActiveTab(id)
+        }}
+      />
 
       <div role="tabpanel" key={`${activeTab}-${hasData ? 'data' : 'idle'}`} className="relative output-panel-enter">
         {isLoading && (

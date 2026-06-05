@@ -1,5 +1,6 @@
 'use client'
 
+import posthog from 'posthog-js'
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 
@@ -60,12 +61,13 @@ function EmptyState() {
   )
 }
 
-function useCopy(text: string) {
+function useCopy(text: string, eventName: string, extraProps?: Record<string, unknown>) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
+      posthog.capture(eventName, extraProps)
       setTimeout(() => setCopied(false), 2000)
     } catch {}
   }
@@ -93,7 +95,7 @@ function CopyButton({ copied, onCopy, label }: { copied: boolean; onCopy: () => 
 }
 
 function BulletRow({ bullet, index }: { bullet: string; index: number }) {
-  const { copied, copy } = useCopy(bullet)
+  const { copied, copy } = useCopy(bullet, 'resume_bullet_copied', { bullet_index: index })
   return (
     <li
       className="output-bullet group flex items-start gap-4 py-[1.125rem] first:pt-5 last:pb-5"
@@ -120,7 +122,7 @@ function BulletRow({ bullet, index }: { bullet: string; index: number }) {
 
 export default function OutputCard({ content, empty = false }: Props) {
   const allText = content.join('\n')
-  const { copied, copy } = useCopy(allText)
+  const { copied, copy } = useCopy(allText, 'resume_bullets_copied', { bullet_count: content.length })
 
   if (empty) return <EmptyState />
 

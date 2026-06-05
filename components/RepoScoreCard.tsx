@@ -1,5 +1,6 @@
 'use client'
 
+import posthog from 'posthog-js'
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { RepoScore, CategoryScore } from '@/types'
@@ -146,7 +147,11 @@ export default function RepoScoreCard({ score, repoUrl }: Props) {
           {CATEGORY_ORDER.length > 3 && (
             <button
               type="button"
-              onClick={() => setShowAllScores((v) => !v)}
+              onClick={() => {
+                const next = !showAllScores
+                if (next) posthog.capture('score_details_expanded', { repo_url: repoUrl })
+                setShowAllScores(next)
+              }}
               className="mt-4 flex items-center gap-1 text-xs font-medium text-[#7AA7FF] transition hover:text-[#9BB8FF]"
             >
               {showAllScores ? 'Show fewer' : `See all ${CATEGORY_ORDER.length} categories`}
@@ -174,7 +179,11 @@ export default function RepoScoreCard({ score, repoUrl }: Props) {
             {hasMoreWeaknesses && (
               <button
                 type="button"
-                onClick={() => setShowAllFixes((v) => !v)}
+                onClick={() => {
+                  const next = !showAllFixes
+                  if (next) posthog.capture('fixes_expanded', { repo_url: repoUrl, total_fixes: score.weaknesses.length })
+                  setShowAllFixes(next)
+                }}
                 className="mt-3 flex items-center gap-1 text-xs font-medium text-[#7AA7FF] transition hover:text-[#9BB8FF]"
               >
                 {showAllFixes ? 'Show fewer' : `See ${score.weaknesses.length - 2} more`}

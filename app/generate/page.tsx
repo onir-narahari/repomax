@@ -1,5 +1,6 @@
 'use client'
 
+import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -57,21 +58,28 @@ function GeneratePageContent() {
     const normalized = normalizeRepoUrl(url)
     setSubmittedUrl(normalized)
     setState({ status: 'loading' })
+    posthog.capture('repo_submitted', { repo_url: normalized })
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-posthog-distinct-id': posthog.get_distinct_id() ?? '',
+          'x-posthog-session-id': posthog.get_session_id() ?? '',
+        },
         body: JSON.stringify({ repoUrl: normalized }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setState({ status: 'error', code: (data.error as AppErrorCode) ?? 'UNKNOWN' })
+        const code = (data.error as AppErrorCode) ?? 'UNKNOWN'
+        setState({ status: 'error', code })
         return
       }
       setState({ status: 'results', data: data as AnalyzeResponse })
       setHasScoredOnce(true)
       setUrlValue('')
-    } catch {
+    } catch (err) {
+      posthog.captureException(err)
       setState({ status: 'error', code: 'UNKNOWN' })
     }
   }
