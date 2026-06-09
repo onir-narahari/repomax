@@ -3,7 +3,7 @@
 export const MOCK_REPO_SLUG = 'user/ai-fitness-coach'
 
 /** Real public repo for live “see example” demos */
-export const EXAMPLE_REPO_URL = 'https://github.com/octocat/Hello-World'
+export const EXAMPLE_REPO_URL = 'https://github.com/bradtraversy/vanillawebprojects'
 
 export const MOCK_SCORE = {
   total: 57,
@@ -37,7 +37,7 @@ export const MOCK_FIXES = [
 ] as const
 
 export const MOCK_BULLET_PREVIEW =
-  'Built a full stack web app with React, Express, and OpenAI API integration for user auth, REST endpoints, and a client dashboard.'
+  'Engineered a full-stack fitness coaching app using React, Express, and the OpenAI API; implemented JWT auth, RESTful endpoints, and a real-time progress dashboard.'
 
 export const MOCK_BULLET_COUNT = 3
 

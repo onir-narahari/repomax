@@ -1,0 +1,3 @@
+- [Score Ticker Component](project-score-ticker.md) — HeroScoreTicker rotating audit strip, location, behavior, conversion purpose
+- [Hero Form Structure](project-hero-form.md) — unified pill input row design, removed secondary CTA, inline example link placement
+- [Landing Page Layout](project-landing-layout.md) — Cluely-mechanic 85vh hero, continuous demo section, no border-t, second HeroRepoForm at bottom

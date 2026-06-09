@@ -1,0 +1,2 @@
+- [RepoMax Design Context](project-repomax-design-context.md) — component map, color system, brand positioning, and landing page structure
+- [Cluely Visual Benchmark](project-cluely-benchmark.md) — directly observed design patterns from cluely.com used as the quality standard

@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, ClipboardPaste } from 'lucide-react'
+import { ArrowRight, Clipboard } from 'lucide-react'
 import { buildGenerateHref, normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
+import { EXAMPLE_REPO_URL } from '@/lib/score-mock'
 
-export default function HeroRepoForm() {
+export default function HeroRepoForm({ showLabel = true }: { showLabel?: boolean }) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [repoInput, setRepoInput] = useState('')
@@ -48,53 +49,73 @@ export default function HeroRepoForm() {
     }
   }
 
+  const handleTryExample = () => {
+    router.push(buildGenerateHref(EXAMPLE_REPO_URL))
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="anim-in mt-6 w-full max-w-md" style={{ animationDelay: '240ms' }}>
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor="hero-repo-url" className="text-[11px] font-semibold uppercase tracking-wider text-white/35">
-          GitHub repo
+    <form onSubmit={handleSubmit} className="w-full">
+      {showLabel && (
+        <label htmlFor="hero-repo-url" className="mb-2.5 block text-xs font-medium tracking-wide text-[#A7B0C3]">
+          Paste your GitHub repo URL
         </label>
+      )}
+      <div className="flex items-center gap-2 rounded-full border border-[#A78BFA]/40 bg-[#202941] p-1.5">
         <button
           type="button"
           onClick={() => void handlePasteFromClipboard()}
-          className="inline-flex items-center gap-1 rounded-md border border-white/8 bg-white/[0.03] px-2 py-1 text-[11px] font-medium text-white/45 transition hover:border-blue-500/25 hover:text-blue-300/90"
+          aria-label="Paste from clipboard"
+          className="ml-1 shrink-0 text-[#A7B0C3]/60 transition hover:text-[#A78BFA]"
         >
-          <ClipboardPaste className="h-3 w-3" />
-          Paste
+          <Clipboard className="h-4 w-4" />
+        </button>
+        <input
+          ref={inputRef}
+          id="hero-repo-url"
+          type="url"
+          value={repoInput}
+          onChange={(e) => {
+            setRepoInput(e.target.value)
+            setValidationError('')
+          }}
+          onPaste={handleInputPaste}
+          placeholder="github.com/your-username/your-project"
+          disabled={isSubmitting}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="url"
+          enterKeyHint="go"
+          className="min-w-0 flex-1 bg-transparent px-2 text-sm text-[#F8FAFC] outline-none placeholder:text-[#A7B0C3]/50 disabled:opacity-60"
+        />
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#38D9FF] px-5 py-2.5 text-sm font-semibold text-[#07111F] transition hover:bg-[#5DE4FF] hover:shadow-[0_0_28px_rgba(56,217,255,0.40)] disabled:cursor-wait disabled:opacity-80"
+        >
+          {isSubmitting ? 'Starting…' : 'Score My Repo'}
+          {!isSubmitting && <ArrowRight className="h-3.5 w-3.5" />}
         </button>
       </div>
-      <input
-        ref={inputRef}
-        id="hero-repo-url"
-        type="url"
-        value={repoInput}
-        onChange={(e) => {
-          setRepoInput(e.target.value)
-          setValidationError('')
-        }}
-        onPaste={handleInputPaste}
-        placeholder="https://github.com/owner/repo"
-        disabled={isSubmitting}
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
-        inputMode="url"
-        enterKeyHint="go"
-        className="mt-2 w-full rounded-xl border border-[#1E3A5F]/80 bg-[#0A0F1E]/80 px-4 py-3.5 font-mono text-sm text-white/90 outline-none placeholder:text-white/25 backdrop-blur-sm focus:border-blue-500/40 focus:ring-2 focus:ring-blue-500/15 disabled:opacity-60"
-      />
+
       {validationError && (
         <p role="alert" className="mt-2 text-xs text-red-400">
           {validationError}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-8 py-3.5 text-base font-semibold text-white transition hover:bg-blue-500 hover:shadow-[0_0_36px_rgba(59,130,246,0.42)] disabled:cursor-wait disabled:opacity-80 sm:w-auto"
-      >
-        {isSubmitting ? 'Starting…' : 'Get your Repo Score'}
-        <ArrowRight className="h-4 w-4" />
-      </button>
+
+      <div className="mt-3 flex flex-col items-center gap-2">
+        <span className="text-xs text-[#A7B0C3]/70 text-center">
+          Public repos only · Results in ~45 seconds · Nothing stored
+        </span>
+        <button
+          type="button"
+          onClick={handleTryExample}
+          className="text-xs text-[#A78BFA]/80 underline-offset-2 hover:text-[#C4B5FD] hover:underline transition-colors duration-150"
+        >
+          See a real result first →
+        </button>
+      </div>
     </form>
   )
 }

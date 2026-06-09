@@ -1,0 +1,2 @@
+- [RepoMax Project Context](project-repomax-context.md) — full landing page structure, component inventory, mock data values, and key conversion gaps as of 2026-06-08
+- [Top Concept: Bullet Transform Section](top-concept-bullet-transform.md) — #1 ranked concept in two sessions; before/after resume bullet section; not yet built; implementation prompt included

@@ -93,6 +93,14 @@ Return only the final 3 bullets.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const README_CHAR_LIMIT = 12000
+
+function truncateReadme(readme: string | null | undefined): string {
+  const text = readme ?? 'No README available.'
+  if (text.length <= README_CHAR_LIMIT) return text
+  return text.slice(0, README_CHAR_LIMIT) + '\n\n[README truncated]'
+}
+
 function buildBulletMessage(ctx: RepoContext, targetRole?: string): string {
   const parts: string[] = []
 
@@ -107,7 +115,7 @@ function buildBulletMessage(ctx: RepoContext, targetRole?: string): string {
     parts.push(`Dependencies: ${ctx.dependencies.join(', ')}`)
   }
 
-  const readmeText = ctx.readme ?? 'No README available.'
+  const readmeText = truncateReadme(ctx.readme)
 
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
   parts.push(`\nRead the full README. Write 3 bullets — bullets 2 and 3 use the same rules: strongest technical proof + README metric when it belongs to that work. Call generate_bullets.`)
@@ -374,7 +382,7 @@ function buildScoreMessage(ctx: RepoContext): string {
   if (ctx.recentCommits.length > 0) parts.push(`Recent commits:\n${ctx.recentCommits.join('\n')}`)
   parts.push(`Stars: ${ctx.stars}`)
   parts.push(`Forks: ${ctx.forksCount}`)
-  const readmeText = ctx.readme ?? 'No README available.'
+  const readmeText = truncateReadme(ctx.readme)
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
   parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only — not resume extractability. Call generate_score.`)
   return parts.join('\n')

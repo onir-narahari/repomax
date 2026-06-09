@@ -1,0 +1,2 @@
+- [RepoMax Project Context](project-repomax-context.md) — target user, landing page structure, key trust/friction signals, current mock data choices
+- [Top Conversion Concept: Bullet Transform Section](top-concept-bullet-transform.md) — ranked #1 of 7 from 2026-06-08 analysis; before/after resume bullet section ready to build; implementation prompt included

@@ -64,7 +64,11 @@ fi
 green "GitHub: https://github.com/${GITHUB_USER}/${REPO_NAME}"
 
 step "Link Vercel project (if needed)"
+ENV_BACKUP="$(mktemp)"
+cp .env.local "$ENV_BACKUP"
 $VERCEL_CMD link --yes
+cp "$ENV_BACKUP" .env.local
+rm "$ENV_BACKUP"
 
 step "Sync environment variables from .env.local → Vercel"
 sync_env() {
