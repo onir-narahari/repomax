@@ -16,7 +16,7 @@ const CATCH_ITEMS = [
 
 export default function HomePageSections() {
   return (
-    <section className={cn('bg-[#202941] border-t border-[#303A55] pt-40 pb-20 sm:pt-48 sm:pb-28 lg:pt-52')}>
+    <section className={cn('bg-[#202941] border-t border-[#303A55] pt-20 pb-20 sm:pt-24 sm:pb-28')}>
       <div className={cn(pageMax, pageX)}>
         <div className={cn('text-center', sectionHeaderGap)}>
           <h2 className="text-2xl sm:text-3xl font-semibold text-[#F8FAFC] tracking-[-0.02em] leading-snug">

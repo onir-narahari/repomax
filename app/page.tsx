@@ -1,10 +1,12 @@
 import LandingHero from '@/components/LandingHero'
+import HomeReadmeLiveEdit from '@/components/HomeReadmeLiveEdit'
 import HomePageSections from '@/components/HomePageSections'
 
 export default function Home() {
   return (
     <main className="flex flex-col bg-[#131929]">
       <LandingHero />
+      <HomeReadmeLiveEdit />
       <HomePageSections />
       <footer className="bg-[#131929] border-t border-[#303A55] px-6 py-8">
         <div className="mx-auto max-w-5xl flex flex-col sm:flex-row items-center justify-between gap-3">

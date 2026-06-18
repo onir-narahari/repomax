@@ -1,9 +1,8 @@
 import Wordmark from '@/components/Wordmark'
 import HeroBackground from '@/components/HeroBackground'
 import HeroRepoForm from '@/components/hero/HeroRepoForm'
-import HeroDemoPreview from '@/components/hero/HeroDemoPreview'
 import ReposScoredNavBadge from '@/components/ReposScoredNavBadge'
-import { heroFormMax, heroOverlap, pageMax, pageX } from '@/lib/landing-layout'
+import { heroFormMax, pageMax, pageX } from '@/lib/landing-layout'
 import { cn } from '@/lib/utils'
 
 export default function LandingHero() {
@@ -28,10 +27,11 @@ export default function LandingHero() {
         </div>
       </nav>
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-center">
+      {/* flex-1 centers content; pb shifts visual center up slightly above midpoint */}
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center pb-20 sm:pb-28">
         <div
           className={cn(
-            'flex w-full flex-col items-center text-center gap-6 sm:gap-8 py-8 sm:py-10',
+            'flex w-full flex-col items-center text-center gap-6 sm:gap-8',
             pageMax,
             pageX,
           )}
@@ -42,7 +42,7 @@ export default function LandingHero() {
           >
             <span className="text-[2rem] font-bold leading-[0.88] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
               Your repo is{' '}
-              <span className="bg-gradient-to-r from-[#A78BFA] to-[#C4B5FD] bg-clip-text text-transparent">
+              <span className="text-[#ff3b3b]">
                 losing
               </span>
             </span>
@@ -62,10 +62,6 @@ export default function LandingHero() {
             <HeroRepoForm />
           </div>
         </div>
-      </div>
-
-      <div className={cn('relative z-10 w-full', pageMax, pageX, heroOverlap)}>
-        <HeroDemoPreview />
       </div>
     </section>
   )
