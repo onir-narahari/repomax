@@ -269,7 +269,7 @@ export default function HomeReadmeLiveEdit() {
                       {cat.val}<span className="text-white/30">/{cat.max}</span>
                     </span>
                   </div>
-                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
+                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{

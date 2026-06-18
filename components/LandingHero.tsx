@@ -19,9 +19,6 @@ export default function LandingHero() {
             <Wordmark className="text-xl font-bold tracking-tight text-[#F8FAFC] sm:text-2xl lg:text-[1.75rem]" />
             <div className="flex items-center gap-2">
               <ReposScoredNavBadge />
-              <span className="rounded-full border border-[#303A55] px-3 py-1 text-xs text-[#A7B0C3]">
-                Free — no account needed
-              </span>
             </div>
           </div>
         </div>
