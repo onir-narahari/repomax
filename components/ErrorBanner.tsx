@@ -5,6 +5,10 @@ const MESSAGES: Record<AppErrorCode, { title: string; detail: string }> = {
     title: 'Invalid URL',
     detail: 'Enter a full public GitHub repo URL — e.g. https://github.com/owner/repo',
   },
+  NOT_GITHUB_URL: {
+    title: 'Not a GitHub URL',
+    detail: 'RepoMax only works with GitHub repos. Paste a link from github.com.',
+  },
   PRIVATE_REPO: {
     title: 'Private repository',
     detail: 'RepoMax only works with public repos. Make the repo public and try again.',
@@ -12,6 +16,14 @@ const MESSAGES: Record<AppErrorCode, { title: string; detail: string }> = {
   NOT_FOUND: {
     title: 'Repo not found',
     detail: "We couldn't find that repo. Double-check the URL — it may have been renamed or deleted.",
+  },
+  EMPTY_REPO: {
+    title: 'Empty repository',
+    detail: "That repo has no commits yet. Push some code first, then try again.",
+  },
+  REPO_BLOCKED: {
+    title: 'Repository unavailable',
+    detail: 'This repo is unavailable on GitHub and cannot be analyzed.',
   },
   RATE_LIMITED: {
     title: 'Too many requests',
@@ -21,9 +33,21 @@ const MESSAGES: Record<AppErrorCode, { title: string; detail: string }> = {
     title: 'GitHub rate limit hit',
     detail: 'The GitHub API is temporarily rate-limited. Please try again in a few minutes.',
   },
+  GITHUB_ERROR: {
+    title: 'GitHub error',
+    detail: "GitHub returned an unexpected error. Please try again.",
+  },
   LLM_ERROR: {
     title: 'Generation failed',
     detail: 'Content generation ran into an issue. Please try again.',
+  },
+  LLM_TIMEOUT: {
+    title: 'Generation timed out',
+    detail: 'Analysis took too long to complete. Please try again.',
+  },
+  LLM_PARSE_ERROR: {
+    title: 'Generation failed',
+    detail: 'Got an unexpected response from the AI. Please try again.',
   },
   UNKNOWN: {
     title: 'Something went wrong',

@@ -46,9 +46,11 @@ async function fetchMetadata(owner: string, repo: string) {
   const res = await ghFetch(`/repos/${owner}/${repo}`)
   if (res.status === 404) throw new Error('NOT_FOUND')
   if (res.status === 403) throw new Error('GITHUB_RATE_LIMITED')
-  if (!res.ok) throw new Error('UNKNOWN')
+  if (res.status === 451) throw new Error('REPO_BLOCKED')
+  if (!res.ok) throw new Error('GITHUB_ERROR')
   const data = await res.json()
   if (data.private) throw new Error('PRIVATE_REPO')
+  if (data.size === 0) throw new Error('EMPTY_REPO')
   return data
 }
 

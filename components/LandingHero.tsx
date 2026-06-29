@@ -37,22 +37,19 @@ export default function LandingHero() {
             className="anim-in flex w-full flex-col gap-1.5"
             style={{ animationDelay: '100ms' }}
           >
-            <span className="text-[2rem] font-bold leading-[0.88] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
-              Your repo is{' '}
-              <span className="text-[#ff3b3b]">
-                losing
-              </span>
+            <span className="text-[2rem] font-bold leading-[0.9] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
+              Don&apos;t let a weak repo
             </span>
-            <span className="text-[2rem] font-bold leading-[0.88] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
-              you interviews.
+            <span className="text-[2rem] font-bold leading-[0.9] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
+              <span className="text-red-400">hide</span> a strong project.
             </span>
           </h1>
 
           <p
-            className="anim-in max-w-md text-sm leading-relaxed text-[#A7B0C3]"
+            className="anim-in max-w-sm text-[0.9375rem] sm:text-base leading-relaxed text-[#A7B0C3]"
             style={{ animationDelay: '180ms' }}
           >
-            Most repos score under 55. Paste yours and see exactly what&apos;s costing you interviews.
+            Paste a repo. Get your score, see what to fix, and turn it into opportunities.
           </p>
 
           <div className={cn('anim-in', heroFormMax)} style={{ animationDelay: '225ms' }}>

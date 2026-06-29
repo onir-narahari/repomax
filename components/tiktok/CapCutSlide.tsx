@@ -1,22 +1,26 @@
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '@/lib/tiktok/constants'
+import { CoverSlideText } from './HighlightedText'
 
-type SlidePhotoCardProps = {
+type CapCutSlideProps = {
   imageUrl: string
   text: string
+  highlightPhrase?: string
   fontSize?: number
   textTopPercent?: number
   textLeftPercent?: number
+  underlineFirstLine?: boolean
 }
 
-export function SlidePhotoCard({
+/** CapCut-style cover: photo + gradient + centered white text, freely positionable. */
+export function CapCutSlide({
   imageUrl,
   text,
-  fontSize = 44,
-  textTopPercent = 11,
+  highlightPhrase,
+  fontSize = 72,
+  textTopPercent = 50,
   textLeftPercent = 50,
-}: SlidePhotoCardProps) {
-  const lines = text.split('\n')
-
+  underlineFirstLine = false,
+}: CapCutSlideProps) {
   return (
     <div
       className="relative shrink-0 overflow-hidden"
@@ -36,7 +40,7 @@ export function SlidePhotoCard({
         className="absolute inset-0"
         style={{
           background:
-            'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 45%, transparent 65%)',
+            'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.55) 100%)',
         }}
       />
       <div
@@ -49,21 +53,12 @@ export function SlidePhotoCard({
           textAlign: 'center',
         }}
       >
-        <div className="flex flex-col items-center" style={{ fontSize, gap: '0.18em' }}>
-          {lines.map((line, i) => {
-            const trimmed = line.replace(/\*\*/g, '').trim()
-            if (!trimmed) return <div key={i} style={{ height: '0.4em' }} aria-hidden />
-            return (
-              <p
-                key={i}
-                className="m-0 font-bold leading-[1.1] tracking-[-0.01em] text-white"
-                style={{ textShadow: '0 2px 14px rgba(0,0,0,0.55)' }}
-              >
-                {trimmed}
-              </p>
-            )
-          })}
-        </div>
+        <CoverSlideText
+          text={text}
+          highlightPhrase={highlightPhrase}
+          underlineFirstLine={underlineFirstLine}
+          fontSize={fontSize}
+        />
       </div>
     </div>
   )

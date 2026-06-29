@@ -224,7 +224,7 @@ export default function HomeReadmeLiveEdit() {
     <section
       ref={sectionRef}
       id="readme-live"
-      className="relative z-10 bg-[#131929] -mt-24 sm:-mt-28 lg:-mt-32 mb-24 sm:mb-28 lg:mb-32 pb-16 sm:pb-20"
+      className="relative z-10 bg-[#131929] -mt-24 sm:-mt-28 lg:-mt-32 mb-0 pb-10 sm:pb-12"
     >
       {/* ── Desktop layout ─────────────────────────────────────────────────── */}
       <div className="hidden lg:block relative mx-auto px-4" style={{ maxWidth: `${STAGE_W + 32}px` }}>
@@ -354,6 +354,12 @@ export default function HomeReadmeLiveEdit() {
           </Card>
         </div>
       </div>
+
+      {/* Gradient fade into tabbed section below */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-24 z-20"
+        style={{ background: 'linear-gradient(to bottom, transparent, #202941)' }}
+      />
     </section>
   )
 }

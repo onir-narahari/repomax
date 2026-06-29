@@ -12,11 +12,15 @@ import ErrorBanner from '@/components/ErrorBanner'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import type { AnalyzeResponse, AppErrorCode } from '@/types'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type GeneratorState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'results'; data: AnalyzeResponse }
   | { status: 'error'; code: AppErrorCode }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const LOADING_LABELS = [
   'Reading your repository…',
@@ -26,22 +30,22 @@ const LOADING_LABELS = [
   'Finalizing results…',
 ]
 
-function InputLoading() {
+// ─── Loading label ─────────────────────────────────────────────────────────────
+
+function LoadingLabel() {
   const [i, setI] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setI((n) => (n + 1) % LOADING_LABELS.length), 2200)
     return () => clearInterval(id)
   }, [])
   return (
-    <p
-      key={i}
-      className="loading-label mx-auto mb-6 max-w-lg text-center text-sm text-[#687386]"
-      aria-live="polite"
-    >
+    <p key={i} className="loading-label text-center text-sm text-[#687386]" aria-live="polite">
       {LOADING_LABELS[i]}
     </p>
   )
 }
+
+// ─── Main page content ─────────────────────────────────────────────────────────
 
 function GeneratePageContent() {
   const searchParams = useSearchParams()
@@ -72,6 +76,7 @@ function GeneratePageContent() {
       const data = await res.json()
       if (!res.ok) {
         const code = (data.error as AppErrorCode) ?? 'UNKNOWN'
+        posthog.capture('repo_score_failed', { error_code: code, repo_url: normalized })
         setState({ status: 'error', code })
         return
       }
@@ -80,6 +85,7 @@ function GeneratePageContent() {
       setUrlValue('')
     } catch (err) {
       posthog.captureException(err)
+      posthog.capture('repo_score_failed', { error_code: 'UNKNOWN', repo_url: normalized })
       setState({ status: 'error', code: 'UNKNOWN' })
     }
   }
@@ -87,7 +93,6 @@ function GeneratePageContent() {
   useEffect(() => {
     const repoParam = searchParams.get('repo')
     if (!repoParam || autoSubmitted.current) return
-
     autoSubmitted.current = true
     const normalized = normalizeRepoUrl(repoParam)
     const err = validateRepoUrl(normalized)
@@ -96,7 +101,6 @@ function GeneratePageContent() {
       setValidationError(err)
       return
     }
-
     setUrlValue(normalized)
     setLaunchedFromQuery(true)
     void submitUrl(normalized)
@@ -114,48 +118,21 @@ function GeneratePageContent() {
     await submitUrl(normalized)
   }
 
-  const dismissError = () => setState({ status: 'idle' })
-
   const isLoading = state.status === 'loading'
   const results = state.status === 'results' ? state.data : undefined
   const hasResults = state.status === 'results'
-  const centerIdle = state.status === 'idle' || state.status === 'error'
+  const isIdle = state.status === 'idle' || state.status === 'error'
   const showFullInput = !hasScoredOnce && (!launchedFromQuery || state.status === 'error')
   const showCompactInput = hasScoredOnce
 
-  const submitButton = (compact: boolean) =>
-    isLoading ? (
-      <span className="flex items-center justify-center gap-2">
-        <span className="inline-flex gap-1" aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className={`inline-block h-1 w-1 rounded-full ${compact ? 'bg-current opacity-70' : 'bg-[#070A12]/70'}`}
-              style={{
-                animation: 'dotPulse 1.4s ease-in-out infinite',
-                animationDelay: `${i * 0.2}s`,
-              }}
-            />
-          ))}
-        </span>
-        Scoring
-      </span>
-    ) : compact ? (
-      'Try another repo →'
-    ) : (
-      'Get your Repo Score →'
-    )
-
-  const urlForm = (compact: boolean) => (
+  const repoInput = (compact: boolean) => (
     <form
       onSubmit={handleFormSubmit}
-      className={`mx-auto max-w-2xl ${compact ? '' : isLoading ? 'mt-0' : 'mt-7 sm:mt-8'}`}
+      className={compact ? '' : 'mt-7 sm:mt-8'}
     >
       <div className={`flex flex-col gap-2 sm:flex-row sm:items-stretch ${compact ? 'gap-1.5' : ''}`}>
         <div className="min-w-0 flex-1">
-          <label htmlFor="repo-url" className="sr-only">
-            Repository URL
-          </label>
+          <label htmlFor="repo-url" className="sr-only">Repository URL</label>
           <input
             id="repo-url"
             type="text"
@@ -180,17 +157,32 @@ function GeneratePageContent() {
           disabled={isLoading}
           className={
             compact
-              ? 'shrink-0 rounded-xl border border-[#242B3A] bg-[#111827] px-4 py-2 text-sm font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap'
+              ? 'shrink-0 rounded-xl border border-[#242B3A] bg-[#111827] px-4 py-2 text-sm font-semibold text-[#F5F3EA] transition hover:border-[#334155] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap'
               : 'shrink-0 rounded-xl bg-[#F5F3EA] px-7 py-3.5 text-sm font-semibold text-[#070A12] transition hover:bg-[#E7E2D7] focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[168px]'
           }
         >
-          {submitButton(compact)}
+          {isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-flex gap-1" aria-hidden>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className={`inline-block h-1 w-1 rounded-full ${compact ? 'bg-current opacity-70' : 'bg-[#070A12]/70'}`}
+                    style={{ animation: 'dotPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}
+                  />
+                ))}
+              </span>
+              Scoring
+            </span>
+          ) : compact ? (
+            'Try another repo →'
+          ) : (
+            'Get your Repo Score →'
+          )}
         </button>
       </div>
       {validationError && (
-        <p role="alert" className="mt-2.5 text-xs text-red-400">
-          {validationError}
-        </p>
+        <p role="alert" className="mt-2.5 text-xs text-red-400">{validationError}</p>
       )}
     </form>
   )
@@ -199,6 +191,7 @@ function GeneratePageContent() {
     <main className="relative flex min-h-screen flex-col text-[#F5F3EA]">
       <GenerateBackground />
 
+      {/* Header */}
       <header className="relative z-20 border-b border-[#242B3A] bg-[#070A12]/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-8">
           <Link href="/" className="transition-opacity hover:opacity-80">
@@ -214,45 +207,57 @@ function GeneratePageContent() {
         </div>
       </header>
 
+      {/* Main content */}
       <div
         className={`relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 pb-16 sm:px-8 ${
-          centerIdle ? 'justify-center py-10 sm:py-14' : hasResults ? 'pt-4 sm:pt-6' : 'pt-10 sm:pt-14'
+          isIdle ? 'justify-center py-10 sm:py-14' : hasResults ? 'pt-4 sm:pt-6' : 'pt-10 sm:pt-14'
         }`}
       >
+        {/* Full idle/error input */}
         {showFullInput && (
           <section className="mb-8 anim-in" style={{ animationDelay: '80ms' }}>
             {!launchedFromQuery && (
-              <p className="mx-auto mb-0 max-w-lg text-center text-xl font-semibold tracking-[-0.02em] text-[#F5F3EA] sm:text-2xl">
-                Paste GitHub URL.{' '}
-                <span className="font-display italic text-[#7AA7FF]">Get your Repo Score.</span>
-              </p>
+              <div className="mb-6 text-center">
+                <h1 className="mb-2 text-2xl font-bold tracking-[-0.025em] text-[#F5F3EA] sm:text-3xl">
+                  Paste your GitHub URL.{' '}
+                  <span className="font-display italic text-[#7AA7FF]">Get your Repo Score.</span>
+                </h1>
+                <p className="text-sm text-[#687386]">
+                  See exactly how a recruiter reads your project in 30 seconds.
+                </p>
+              </div>
             )}
-            {isLoading && <InputLoading />}
-            {(!launchedFromQuery || state.status === 'error') && urlForm(false)}
+            {isLoading && <LoadingLabel />}
+            {(!launchedFromQuery || state.status === 'error') && repoInput(false)}
           </section>
         )}
 
+        {/* Launched from query, still loading */}
         {launchedFromQuery && isLoading && !showFullInput && (
           <section className="mb-8 anim-in">
-            <InputLoading />
+            <LoadingLabel />
           </section>
         )}
 
+        {/* Compact input after first score */}
         {showCompactInput && (
           <section className="mb-5 anim-in" style={{ animationDelay: '80ms' }}>
-            {urlForm(true)}
+            {repoInput(true)}
           </section>
         )}
 
+        {/* Error banner */}
         {state.status === 'error' && (
           <div className="mb-6 anim-in">
-            <ErrorBanner code={state.code} onDismiss={dismissError} />
+            <ErrorBanner code={state.code} onDismiss={() => setState({ status: 'idle' })} />
           </div>
         )}
 
+        {/* Results */}
         <div className="anim-in" style={{ animationDelay: '100ms' }}>
           <OutputTabs data={results} repoUrl={submittedUrl} isLoading={isLoading} />
         </div>
+
       </div>
 
       <footer className="relative z-10 pb-10 text-center text-xs text-[#687386]">
@@ -261,6 +266,8 @@ function GeneratePageContent() {
     </main>
   )
 }
+
+// ─── Fallback ──────────────────────────────────────────────────────────────────
 
 function GeneratePageFallback() {
   return (

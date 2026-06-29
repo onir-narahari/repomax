@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import OpenAI, { APIConnectionTimeoutError } from 'openai'
 import type { RepoContext, RepoScore } from '@/types'
 import { normalizeRepoScore, filterRepoAdvice, readmeClaimsShippedProduct } from './repo-score'
 import { AnalyzeResponseSchema, RepoScoreSchema, type AnalyzeResponseOutput } from './schema'
@@ -174,29 +174,42 @@ type BulletsResult = {
 }
 
 async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
-  const response = await getClient().chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0.5,
-    max_tokens: 1200,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: bulletMsg },
-    ],
-    tools: [BULLETS_TOOL],
-    tool_choice: { type: 'function', function: { name: 'generate_bullets' } },
-  })
+  let response: OpenAI.Chat.ChatCompletion
+  try {
+    response = await getClient().chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.5,
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: bulletMsg },
+      ],
+      tools: [BULLETS_TOOL],
+      tool_choice: { type: 'function', function: { name: 'generate_bullets' } },
+    })
+  } catch (err) {
+    if (err instanceof APIConnectionTimeoutError) throw new Error('LLM_TIMEOUT')
+    throw new Error('LLM_ERROR')
+  }
 
   const choice = response.choices[0]
   const toolCall = choice?.message?.tool_calls?.[0]
   if (!toolCall || toolCall.type !== 'function') {
     console.error('[RepoMax] Bullet gen — no tool call. finish_reason:', choice?.finish_reason, 'content:', choice?.message?.content)
-    throw new Error('LLM_ERROR')
+    throw new Error('LLM_PARSE_ERROR')
   }
 
-  const result = JSON.parse(toolCall.function.arguments) as BulletsResult
+  let result: BulletsResult
+  try {
+    result = JSON.parse(toolCall.function.arguments) as BulletsResult
+  } catch {
+    console.error('[RepoMax] Bullet gen — JSON parse failed:', toolCall.function.arguments)
+    throw new Error('LLM_PARSE_ERROR')
+  }
+
   if (!Array.isArray(result.resumeBullets) || result.resumeBullets.length < 3) {
     console.error('[RepoMax] Bullet gen — too few bullets:', result.resumeBullets?.length, result.resumeBullets)
-    throw new Error('LLM_ERROR')
+    throw new Error('LLM_PARSE_ERROR')
   }
   return result
 }

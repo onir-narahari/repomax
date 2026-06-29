@@ -3,15 +3,17 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Clipboard } from 'lucide-react'
+import posthog from 'posthog-js'
 import { buildGenerateHref, normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import { EXAMPLE_REPO_URL } from '@/lib/score-mock'
 
-export default function HeroRepoForm({ showLabel = true }: { showLabel?: boolean }) {
+export default function HeroRepoForm({ showLabel = true, showStrip = true }: { showLabel?: boolean; showStrip?: boolean }) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [repoInput, setRepoInput] = useState('')
   const [validationError, setValidationError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [clipboardHint, setClipboardHint] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,17 +25,27 @@ export default function HeroRepoForm({ showLabel = true }: { showLabel?: boolean
     }
     setValidationError('')
     setIsSubmitting(true)
+    posthog.capture('repo_submitted', { repo_url: normalized })
     router.push(buildGenerateHref(normalized))
+  }
+
+  const showClipboardHint = (msg: string) => {
+    setClipboardHint(msg)
+    setTimeout(() => setClipboardHint(''), 2000)
   }
 
   const handlePasteFromClipboard = async () => {
     inputRef.current?.focus()
     try {
       const text = await navigator.clipboard.readText()
-      if (!text.trim()) return
+      if (!text.trim()) {
+        showClipboardHint('Clipboard is empty')
+        return
+      }
       setRepoInput(text.trim())
       setValidationError('')
     } catch {
+      showClipboardHint('Paste your URL manually')
       inputRef.current?.select()
     }
   }
@@ -49,26 +61,26 @@ export default function HeroRepoForm({ showLabel = true }: { showLabel?: boolean
     }
   }
 
-  const handleTryExample = () => {
-    router.push(buildGenerateHref(EXAMPLE_REPO_URL))
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="w-full">
-      {showLabel && (
-        <label htmlFor="hero-repo-url" className="mb-2.5 block text-xs font-medium tracking-wide text-[#A7B0C3]">
-          Paste your GitHub repo URL
-        </label>
-      )}
-      <div className="flex items-center gap-2 rounded-full border border-[#A78BFA]/40 bg-[#202941] p-1.5">
-        <button
-          type="button"
-          onClick={() => void handlePasteFromClipboard()}
-          aria-label="Paste from clipboard"
-          className="ml-1 shrink-0 text-[#A7B0C3]/60 transition hover:text-[#A78BFA]"
-        >
-          <Clipboard className="h-4 w-4" />
-        </button>
+    <form onSubmit={handleSubmit} className="w-full flex flex-col items-center gap-4">
+
+      {/* Input pill */}
+      <div className="flex w-full items-center gap-3 rounded-full border border-[#A78BFA]/40 bg-[#202941] px-4 py-3.5">
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => void handlePasteFromClipboard()}
+            aria-label="Paste from clipboard"
+            className="text-[#A7B0C3]/60 transition hover:text-[#A78BFA]"
+          >
+            <Clipboard className="h-4 w-4" />
+          </button>
+          {clipboardHint && (
+            <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#1E293B] px-2.5 py-1 text-xs text-[#A7B0C3]">
+              {clipboardHint}
+            </span>
+          )}
+        </div>
         <input
           ref={inputRef}
           id="hero-repo-url"
@@ -79,43 +91,45 @@ export default function HeroRepoForm({ showLabel = true }: { showLabel?: boolean
             setValidationError('')
           }}
           onPaste={handleInputPaste}
-          placeholder="github.com/your-username/your-project"
+          placeholder="https://github.com/your-username/your-project-name"
           disabled={isSubmitting}
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
           inputMode="url"
           enterKeyHint="go"
-          className="min-w-0 flex-1 bg-transparent px-2 text-sm text-[#F8FAFC] outline-none placeholder:text-[#A7B0C3]/50 disabled:opacity-60"
+          className="min-w-0 flex-1 bg-transparent text-sm text-[#F8FAFC] outline-none placeholder:text-[#A7B0C3]/50 disabled:opacity-60"
         />
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#38D9FF] px-5 py-2.5 text-sm font-semibold text-[#07111F] transition hover:bg-[#5DE4FF] hover:shadow-[0_0_28px_rgba(56,217,255,0.40)] disabled:cursor-wait disabled:opacity-80"
-        >
-          {isSubmitting ? 'Starting…' : 'Score My Repo'}
-          {!isSubmitting && <ArrowRight className="h-3.5 w-3.5" />}
-        </button>
       </div>
 
       {validationError && (
-        <p role="alert" className="mt-2 text-xs text-red-400">
+        <p role="alert" className="text-xs text-red-400">
           {validationError}
         </p>
       )}
 
-      <div className="mt-3 flex flex-col items-center gap-2">
-        <span className="text-xs text-[#A7B0C3]/70 text-center">
-          Public repos only · Results in ~45 seconds · Nothing stored
-        </span>
-        <button
-          type="button"
-          onClick={handleTryExample}
-          className="text-xs text-[#A78BFA]/80 underline-offset-2 hover:text-[#C4B5FD] hover:underline transition-colors duration-150"
-        >
-          See a real result first →
-        </button>
-      </div>
+      {/* CTA — below the pill */}
+      <button
+        type="submit"
+        disabled={isSubmitting}
+        className="inline-flex items-center gap-2 rounded-full bg-[#38D9FF] px-8 py-3 text-sm font-semibold text-[#07111F] transition hover:bg-[#5DE4FF] hover:shadow-[0_0_28px_rgba(56,217,255,0.35)] disabled:cursor-wait disabled:opacity-80"
+      >
+        {isSubmitting ? 'Starting…' : "Show Me What's Weak"}
+        {!isSubmitting && <ArrowRight className="h-3.5 w-3.5" />}
+      </button>
+
+      {/* Example link */}
+      <button
+        type="button"
+        onClick={() => {
+          posthog.capture('example_result_clicked')
+          router.push(buildGenerateHref(EXAMPLE_REPO_URL))
+        }}
+        className="text-xs text-[#A7B0C3]/60 hover:text-[#A7B0C3] transition-colors"
+      >
+        See an example score →
+      </button>
+
     </form>
   )
 }

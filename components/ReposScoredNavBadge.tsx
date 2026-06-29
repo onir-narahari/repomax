@@ -21,5 +21,5 @@ export default function ReposScoredNavBadge() {
     }
   }, [])
 
-  return <ReposScoredBadge label={label} />
+  return <ReposScoredBadge label={label ?? '100+ repos scored'} />
 }

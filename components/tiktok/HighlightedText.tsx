@@ -68,26 +68,35 @@ export function CoverSlideText({
   const lines = text.split('\n')
 
   return (
-    <div className="flex flex-col gap-[0.2em]" style={{ fontSize }}>
+    <div className="flex flex-col items-center gap-[0.2em] text-center" style={{ fontSize }}>
       {lines.map((line, i) => {
+        if (!line.trim()) {
+          return <div key={i} className="h-[0.35em]" aria-hidden />
+        }
+
         const content = (
-          <HighlightedText text={line} highlightPhrase={highlightPhrase} />
+          <HighlightedText
+            text={line}
+            highlightPhrase={highlightPhrase}
+            useMarkers={!highlightPhrase?.trim()}
+          />
         )
         const isFirst = i === 0
 
         return (
           <p
             key={i}
-            className="font-bold leading-[1.08] tracking-[-0.02em] text-white m-0"
-            style={
-              underlineFirstLine && isFirst
+            className="m-0 font-bold leading-[1.08] tracking-[-0.02em] text-white"
+            style={{
+              textShadow: '0 2px 16px rgba(0,0,0,0.75)',
+              ...(underlineFirstLine && isFirst
                 ? {
                     textDecoration: 'underline',
                     textDecorationThickness: '0.08em',
                     textUnderlineOffset: '0.12em',
                   }
-                : undefined
-            }
+                : undefined),
+            }}
           >
             {content}
           </p>

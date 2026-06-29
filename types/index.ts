@@ -73,12 +73,34 @@ export interface AnalyzeResponse {
 
 export type AppErrorCode =
   | 'INVALID_URL'
+  | 'NOT_GITHUB_URL'
   | 'PRIVATE_REPO'
   | 'NOT_FOUND'
+  | 'EMPTY_REPO'
+  | 'REPO_BLOCKED'
   | 'RATE_LIMITED'
   | 'GITHUB_RATE_LIMITED'
+  | 'GITHUB_ERROR'
   | 'LLM_ERROR'
+  | 'LLM_TIMEOUT'
+  | 'LLM_PARSE_ERROR'
   | 'UNKNOWN'
+
+export const ERROR_FAULT: Record<AppErrorCode, 'user' | 'system'> = {
+  INVALID_URL: 'user',
+  NOT_GITHUB_URL: 'user',
+  PRIVATE_REPO: 'user',
+  NOT_FOUND: 'user',
+  EMPTY_REPO: 'user',
+  REPO_BLOCKED: 'user',
+  RATE_LIMITED: 'system',
+  GITHUB_RATE_LIMITED: 'system',
+  GITHUB_ERROR: 'system',
+  LLM_ERROR: 'system',
+  LLM_TIMEOUT: 'system',
+  LLM_PARSE_ERROR: 'system',
+  UNKNOWN: 'system',
+}
 
 export interface AppError {
   error: AppErrorCode

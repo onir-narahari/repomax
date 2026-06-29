@@ -1,5 +1,28 @@
 const SLIDE_BLOCK_RE = /Slide\s*(\d)\s*:\s*\n([\s\S]*?)(?=Slide\s*\d\s*:|$)/gi
 
+/** Parse a full storyboard paste (Topic: ... Slide 1: ... Slide 2: ...) into per-slide text blocks. */
+export function parseStoryboard(raw: string): string[] {
+  const text = raw.trim()
+  if (!text) return []
+
+  const re = /^Slide\s*\d+\s*:/gim
+  const matches = [...text.matchAll(re)]
+
+  if (matches.length === 0) {
+    return text
+      .replace(/^Topic\s*:.*(\n|$)/i, '')
+      .split(/\n{2,}/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+
+  return matches.map((match, i) => {
+    const start = (match.index ?? 0) + match[0].length
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length
+    return text.slice(start, end).trim()
+  })
+}
+
 export function parseSlideshowScript(raw: string): string[] {
   const slides = Array.from({ length: 5 }, () => '')
   const text = raw.trim()
