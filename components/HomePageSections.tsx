@@ -319,7 +319,7 @@ export default function HomePageSections() {
 
 const TESTIMONIALS = [
   {
-    quote: "The interview prep questions RepoMax generated were exactly what Meta asked. I finally understood my own architecture well enough to explain every decision. I passed the behavioral and got the return offer.",
+    quote: "RepoMax made me actually think through my own project. The interview prep covered architecture, system design, and tradeoffs. When Meta asked about a technical decision I made, I had a real answer.",
     name: 'Onir',
     school: 'UT Austin',
     year: "'28",
