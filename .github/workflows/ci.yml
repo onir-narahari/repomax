@@ -9,6 +9,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Public client keys — required at build time for auth pages to prerender
+      NEXT_PUBLIC_SUPABASE_URL: https://ydaofksoqgxxisuwttpu.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkYW9ma3NvcWd4eGlzdXd0dHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3Njc4OTUsImV4cCI6MjA5ODM0Mzg5NX0.Zc0X2XISbVk4hHtbC4cMp3W80MIfqwEbRrpCyGSxL18
     steps:
       - uses: actions/checkout@v4
 
