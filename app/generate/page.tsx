@@ -9,6 +9,9 @@ import Wordmark from '@/components/Wordmark'
 import GenerateBackground from '@/components/GenerateBackground'
 import OutputTabs from '@/components/OutputTabs'
 import ErrorBanner from '@/components/ErrorBanner'
+import AuthModal from '@/components/AuthModal'
+import ProfileButton from '@/components/ProfileButton'
+import { createClient } from '@/lib/supabase'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import type { AnalyzeResponse, AppErrorCode } from '@/types'
 
@@ -57,6 +60,21 @@ function GeneratePageContent() {
   const [urlValue, setUrlValue] = useState('')
   const [validationError, setValidationError] = useState('')
   const [hasScoredOnce, setHasScoredOnce] = useState(false)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [isAuthed, setIsAuthed] = useState(false)
+  const pendingUrlRef = useRef<string | null>(null)
+
+  const supabase = createClient()
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setIsAuthed(!!data.session)
+    })
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthed(!!session)
+    })
+    return () => listener.subscription.unsubscribe()
+  }, [])
 
   const submitUrl = async (url: string) => {
     const normalized = normalizeRepoUrl(url)
@@ -83,6 +101,20 @@ function GeneratePageContent() {
       setState({ status: 'results', data: data as AnalyzeResponse })
       setHasScoredOnce(true)
       setUrlValue('')
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log('[save] session:', session?.user?.id ?? 'NO SESSION')
+      if (session) {
+        const { error: insertError } = await supabase.from('repo_scores').insert({
+          user_id: session.user.id,
+          repo_url: normalized,
+          repo_name: normalized.replace('https://github.com/', ''),
+          score: (data as AnalyzeResponse).repoScore?.total ?? null,
+          label: (data as AnalyzeResponse).repoScore?.label ?? null,
+          summary: (data as AnalyzeResponse).repoScore?.summary ?? null,
+          result: data,
+        })
+        console.log('[save] insert error:', insertError)
+      }
     } catch (err) {
       posthog.captureException(err)
       posthog.capture('repo_score_failed', { error_code: 'UNKNOWN', repo_url: normalized })
@@ -115,7 +147,20 @@ function GeneratePageContent() {
       return
     }
     setValidationError('')
+    if (hasScoredOnce && !isAuthed) {
+      pendingUrlRef.current = normalized
+      setShowAuthModal(true)
+      return
+    }
     await submitUrl(normalized)
+  }
+
+  const handleAuthSuccess = async () => {
+    setShowAuthModal(false)
+    if (pendingUrlRef.current) {
+      await submitUrl(pendingUrlRef.current)
+      pendingUrlRef.current = null
+    }
   }
 
   const isLoading = state.status === 'loading'
@@ -124,6 +169,7 @@ function GeneratePageContent() {
   const isIdle = state.status === 'idle' || state.status === 'error'
   const showFullInput = !hasScoredOnce && (!launchedFromQuery || state.status === 'error')
   const showCompactInput = hasScoredOnce
+  const homeHref = isAuthed ? '/profile' : '/'
 
   const repoInput = (compact: boolean) => (
     <form
@@ -191,19 +237,29 @@ function GeneratePageContent() {
     <main className="relative flex min-h-screen flex-col text-[#F5F3EA]">
       <GenerateBackground />
 
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+        />
+      )}
+
       {/* Header */}
-      <header className="relative z-20 border-b border-[#242B3A] bg-[#070A12]/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-8">
-          <Link href="/" className="transition-opacity hover:opacity-80">
+      <header className="relative z-20 border-b border-white/[0.06] bg-[#070A12]/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6 sm:px-8">
+          <Link href={homeHref} className="transition-opacity hover:opacity-80">
             <Wordmark variant="generate" className="text-xl font-bold tracking-tight sm:text-2xl" />
           </Link>
-          <Link
-            href="/"
-            aria-label="Back to home"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-[#242B3A] bg-[#0D111C] text-[#687386] transition hover:border-[#334155] hover:text-[#9AA3B5]"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={homeHref}
+              aria-label="Back to home"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[#242B3A] bg-[#0D111C] text-[#687386] transition hover:border-[#334155] hover:text-[#9AA3B5]"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </Link>
+            <ProfileButton />
+          </div>
         </div>
       </header>
 
@@ -218,13 +274,10 @@ function GeneratePageContent() {
           <section className="mb-8 anim-in" style={{ animationDelay: '80ms' }}>
             {!launchedFromQuery && (
               <div className="mb-6 text-center">
-                <h1 className="mb-2 text-2xl font-bold tracking-[-0.025em] text-[#F5F3EA] sm:text-3xl">
+                <h1 className="text-2xl font-bold tracking-[-0.025em] text-[#F5F3EA] sm:text-3xl">
                   Paste your GitHub URL.{' '}
-                  <span className="font-display italic text-[#7AA7FF]">Get your Repo Score.</span>
+                  <span className="text-[#7AA7FF]">Get your Repo Score.</span>
                 </h1>
-                <p className="text-sm text-[#687386]">
-                  See exactly how a recruiter reads your project in 30 seconds.
-                </p>
               </div>
             )}
             {isLoading && <LoadingLabel />}
@@ -261,7 +314,7 @@ function GeneratePageContent() {
       </div>
 
       <footer className="relative z-10 pb-10 text-center text-xs text-[#687386]">
-        Only reads public repos. No data is stored.
+        Only reads public repos.
       </footer>
     </main>
   )

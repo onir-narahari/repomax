@@ -1,7 +1,7 @@
 import Wordmark from '@/components/Wordmark'
 import HeroBackground from '@/components/HeroBackground'
 import HeroRepoForm from '@/components/hero/HeroRepoForm'
-import ReposScoredNavBadge from '@/components/ReposScoredNavBadge'
+import ProfileButton from '@/components/ProfileButton'
 import { heroFormMax, pageMax, pageX } from '@/lib/landing-layout'
 import { cn } from '@/lib/utils'
 
@@ -13,14 +13,10 @@ export default function LandingHero() {
     >
       <HeroBackground />
 
-      <nav className="relative z-20 shrink-0 anim-in">
-        <div className={cn('w-full', pageMax, pageX)}>
-          <div className="flex items-center justify-between py-5 lg:py-6">
-            <Wordmark className="text-xl font-bold tracking-tight text-[#F8FAFC] sm:text-2xl lg:text-[1.75rem]" />
-            <div className="flex items-center gap-2">
-              <ReposScoredNavBadge />
-            </div>
-          </div>
+      <nav className="relative z-20 shrink-0 border-b border-white/[0.06] bg-[#131929]/80 backdrop-blur-md">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6 sm:px-8">
+          <Wordmark className="text-lg font-bold tracking-tight text-[#F8FAFC] sm:text-xl" />
+          <ProfileButton />
         </div>
       </nav>
 
@@ -38,10 +34,10 @@ export default function LandingHero() {
             style={{ animationDelay: '100ms' }}
           >
             <span className="text-[2rem] font-bold leading-[0.9] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
-              Don&apos;t let a weak repo
+              Turn your GitHub repo
             </span>
             <span className="text-[2rem] font-bold leading-[0.9] tracking-[-0.03em] text-[#F8FAFC] sm:text-[2.75rem] lg:text-[3.25rem]">
-              <span className="text-red-400">hide</span> a strong project.
+              into your <span className="text-red-400">next opportunity</span>.
             </span>
           </h1>
 
@@ -49,7 +45,7 @@ export default function LandingHero() {
             className="anim-in max-w-sm text-[0.9375rem] sm:text-base leading-relaxed text-[#A7B0C3]"
             style={{ animationDelay: '180ms' }}
           >
-            Paste a repo. Get your score, see what to fix, and turn it into opportunities.
+            Paste a public repo. Get a score, specific gaps, and resume bullets.
           </p>
 
           <div className={cn('anim-in', heroFormMax)} style={{ animationDelay: '225ms' }}>

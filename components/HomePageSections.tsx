@@ -177,7 +177,7 @@ const FEATURES: {
     key: 'outreach',
     index: '01',
     label: 'Startup Outreach',
-    headline: 'Get startup founders to reply to your project.',
+    headline: 'Turn your repo into targeted startup outreach.',
     description: 'Matches your repo to startups in your space, finds founder emails, and writes the cold email for you.',
     bullets: [
       'Finds startups with a product similar to yours',

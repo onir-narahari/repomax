@@ -114,7 +114,7 @@ export default function HeroRepoForm({ showLabel = true, showStrip = true }: { s
         disabled={isSubmitting}
         className="inline-flex items-center gap-2 rounded-full bg-[#38D9FF] px-8 py-3 text-sm font-semibold text-[#07111F] transition hover:bg-[#5DE4FF] hover:shadow-[0_0_28px_rgba(56,217,255,0.35)] disabled:cursor-wait disabled:opacity-80"
       >
-        {isSubmitting ? 'Starting…' : "Show Me What's Weak"}
+        {isSubmitting ? 'Starting…' : 'Scan My Repo'}
         {!isSubmitting && <ArrowRight className="h-3.5 w-3.5" />}
       </button>
 
