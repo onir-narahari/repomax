@@ -1,5 +1,6 @@
 'use client'
 
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
@@ -54,8 +55,12 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess }
         password,
         options: { data: { username } },
       })
-      if (error) setError(error.message)
-      else onSuccess()
+      if (error) {
+        setError(error.message)
+      } else {
+        posthog.capture('account_created')
+        onSuccess()
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) setError(error.message)
