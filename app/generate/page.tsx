@@ -11,6 +11,7 @@ import OutputTabs from '@/components/OutputTabs'
 import ErrorBanner from '@/components/ErrorBanner'
 import AuthModal from '@/components/AuthModal'
 import ProfileButton from '@/components/ProfileButton'
+import type { SaveStatus } from '@/components/RepoScoreCard'
 import { createClient } from '@/lib/supabase'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import type { AnalyzeResponse, AppErrorCode } from '@/types'
@@ -62,7 +63,8 @@ function GeneratePageContent() {
   const [hasScoredOnce, setHasScoredOnce] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [isAuthed, setIsAuthed] = useState(false)
-  const pendingUrlRef = useRef<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const pendingActionRef = useRef<(() => void | Promise<void>) | null>(null)
 
   const supabase = createClient()
 
@@ -76,10 +78,80 @@ function GeneratePageContent() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
+  const requireAuth = (action: () => void | Promise<void>) => {
+    pendingActionRef.current = action
+    setShowAuthModal(true)
+  }
+
+  const hasExistingSave = async (userId: string, repoUrl: string, score: number) => {
+    const { data } = await supabase
+      .from('repo_scores')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('repo_url', repoUrl)
+      .eq('score', score)
+      .maybeSingle()
+    return !!data
+  }
+
+  const refreshSaveStatus = async (repoUrl: string, score: number | null) => {
+    if (score === null) {
+      setSaveStatus('unsaved')
+      return
+    }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setSaveStatus('unsaved')
+      return
+    }
+    setSaveStatus('checking')
+    const exists = await hasExistingSave(session.user.id, repoUrl, score)
+    setSaveStatus(exists ? 'saved' : 'unsaved')
+  }
+
+  const handleSaveScore = async () => {
+    if (state.status !== 'results' || saveStatus === 'saved' || saveStatus === 'saving' || saveStatus === 'checking') return
+    const score = state.data.repoScore
+    if (!score) return
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      requireAuth(() => handleSaveScore())
+      return
+    }
+
+    setSaveStatus('saving')
+    const exists = await hasExistingSave(session.user.id, submittedUrl, score.total)
+    if (exists) {
+      setSaveStatus('saved')
+      return
+    }
+
+    const { error } = await supabase.from('repo_scores').insert({
+      user_id: session.user.id,
+      repo_url: submittedUrl,
+      repo_name: submittedUrl.replace('https://github.com/', ''),
+      score: score.total,
+      label: score.label,
+      summary: score.summary,
+      result: state.data,
+    })
+
+    if (error) {
+      posthog.captureException(error)
+      setSaveStatus('unsaved')
+      return
+    }
+
+    posthog.capture('repo_score_saved', { repo_url: submittedUrl, score: score.total })
+    setSaveStatus('saved')
+  }
+
   const submitUrl = async (url: string) => {
     const normalized = normalizeRepoUrl(url)
     setSubmittedUrl(normalized)
     setState({ status: 'loading' })
+    setSaveStatus('idle')
     posthog.capture('repo_submitted', { repo_url: normalized })
     try {
       const res = await fetch('/api/analyze', {
@@ -101,20 +173,7 @@ function GeneratePageContent() {
       setState({ status: 'results', data: data as AnalyzeResponse })
       setHasScoredOnce(true)
       setUrlValue('')
-      const { data: { session } } = await supabase.auth.getSession()
-      console.log('[save] session:', session?.user?.id ?? 'NO SESSION')
-      if (session) {
-        const { error: insertError } = await supabase.from('repo_scores').insert({
-          user_id: session.user.id,
-          repo_url: normalized,
-          repo_name: normalized.replace('https://github.com/', ''),
-          score: (data as AnalyzeResponse).repoScore?.total ?? null,
-          label: (data as AnalyzeResponse).repoScore?.label ?? null,
-          summary: (data as AnalyzeResponse).repoScore?.summary ?? null,
-          result: data,
-        })
-        console.log('[save] insert error:', insertError)
-      }
+      await refreshSaveStatus(normalized, (data as AnalyzeResponse).repoScore?.total ?? null)
     } catch (err) {
       posthog.captureException(err)
       posthog.capture('repo_score_failed', { error_code: 'UNKNOWN', repo_url: normalized })
@@ -148,8 +207,7 @@ function GeneratePageContent() {
     }
     setValidationError('')
     if (hasScoredOnce && !isAuthed) {
-      pendingUrlRef.current = normalized
-      setShowAuthModal(true)
+      requireAuth(() => submitUrl(normalized))
       return
     }
     await submitUrl(normalized)
@@ -157,10 +215,9 @@ function GeneratePageContent() {
 
   const handleAuthSuccess = async () => {
     setShowAuthModal(false)
-    if (pendingUrlRef.current) {
-      await submitUrl(pendingUrlRef.current)
-      pendingUrlRef.current = null
-    }
+    const action = pendingActionRef.current
+    pendingActionRef.current = null
+    if (action) await action()
   }
 
   const isLoading = state.status === 'loading'
@@ -308,7 +365,15 @@ function GeneratePageContent() {
 
         {/* Results */}
         <div className="anim-in" style={{ animationDelay: '100ms' }}>
-          <OutputTabs data={results} repoUrl={submittedUrl} isLoading={isLoading} />
+          <OutputTabs
+            data={results}
+            repoUrl={submittedUrl}
+            isLoading={isLoading}
+            isAuthed={isAuthed}
+            onRequireAuth={requireAuth}
+            saveStatus={saveStatus}
+            onSaveScore={handleSaveScore}
+          />
         </div>
 
       </div>

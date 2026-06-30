@@ -3,7 +3,7 @@
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import OutputCard from '@/components/OutputCard'
-import RepoScoreCard from '@/components/RepoScoreCard'
+import RepoScoreCard, { type SaveStatus } from '@/components/RepoScoreCard'
 import RepoScoreCardGhost from '@/components/RepoScoreCardGhost'
 import type { AnalyzeResponse } from '@/types'
 
@@ -34,6 +34,10 @@ interface Props {
   data?: AnalyzeResponse
   repoUrl?: string
   isLoading?: boolean
+  isAuthed?: boolean
+  onRequireAuth?: (action: () => void) => void
+  saveStatus?: SaveStatus
+  onSaveScore?: () => void
 }
 
 // ─── Blurred preview content ──────────────────────────────────────────────────
@@ -238,7 +242,7 @@ function PillTabBar({
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-export default function OutputTabs({ data, repoUrl, isLoading = false }: Props) {
+export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed = false, onRequireAuth, saveStatus, onSaveScore }: Props) {
   const hasData = !!data
   const hasReview = !!data?.repoScore
 
@@ -268,6 +272,11 @@ export default function OutputTabs({ data, repoUrl, isLoading = false }: Props) 
         active={activeTab}
         showReview={hasReview}
         onSelect={(id) => {
+          if (id === 'resume' && !isAuthed) {
+            posthog.capture('output_tab_auth_gate', { tab: id })
+            onRequireAuth?.(() => setActiveTab('resume'))
+            return
+          }
           posthog.capture('output_tab_switched', { tab: id, previous_tab: activeTab })
           setActiveTab(id)
         }}
@@ -288,7 +297,7 @@ export default function OutputTabs({ data, repoUrl, isLoading = false }: Props) 
 
           {hasData ? (
             activeTab === 'review' && data?.repoScore ? (
-              <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} />
+              <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} saveStatus={saveStatus} onSave={onSaveScore} />
             ) : (
               <OutputCard content={data?.resumeBullets ?? []} empty={false} tabId="resume" />
             )
