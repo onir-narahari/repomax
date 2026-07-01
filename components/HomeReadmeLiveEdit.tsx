@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { forwardRef, useRef, useEffect, useState, useCallback } from 'react'
+import { Check } from 'lucide-react'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -170,14 +171,226 @@ npm run deploy`}</code>
 
 // ─── Card shell ───────────────────────────────────────────────────────────────
 
-function Card({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
-  return (
+const Card = forwardRef<HTMLDivElement, { children: React.ReactNode; className?: string; style?: React.CSSProperties }>(
+  ({ children, className = '', style }, ref) => (
     <div
+      ref={ref}
       className={`rounded-2xl border border-white/[0.08] bg-[#111116]/95 backdrop-blur-md shadow-2xl p-5 ${className}`}
       style={style}
     >
       {children}
     </div>
+  )
+)
+Card.displayName = 'Card'
+
+const GAPS = [
+  'No live demo or deploy link',
+  'Hook fails the 5-second scan',
+  'Tech stack not front-loaded',
+]
+
+function MiniCTA({ label, colorClass }: { label: string; colorClass: string }) {
+  return (
+    <a
+      href="/#top"
+      className={`self-center rounded-full border-2 px-6 py-2.5 font-mono text-[12px] font-bold transition-colors ${colorClass}`}
+    >
+      {label}
+    </a>
+  )
+}
+
+function StepLabel({ n, text }: { n: number; text: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[10px] font-bold text-emerald-400">{n}</span>
+      <p className="text-[12px] font-semibold text-white/80">{text}</p>
+    </div>
+  )
+}
+
+// ─── Left stack: proof cards ────────────────────────────────────────────────
+
+function ScoreCard({ displayScore, started }: { displayScore: number; started: boolean }) {
+  return (
+    <Card className="flex flex-col items-center gap-5 p-6">
+      <ScoreRing score={displayScore} size={120} />
+      <div className="w-full space-y-3">
+        <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-3">Category breakdown</p>
+        {CATEGORIES.map((cat) => (
+          <div key={cat.label}>
+            <div className="flex justify-between mb-1">
+              <span className="text-[11.5px] text-white/80">{cat.label}</span>
+              <span className="font-mono text-[11px] text-white/60">
+                {cat.val}<span className="text-white/30">/{cat.max}</span>
+              </span>
+            </div>
+            <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: started ? `${(cat.val / cat.max) * 100}%` : '0%',
+                  backgroundColor: 'rgba(255,255,255,0.55)',
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <MiniCTA label="See my score →" colorClass="border-red-500/25 bg-red-500/10 text-red-400 hover:bg-red-500/15" />
+    </Card>
+  )
+}
+
+function FindingsCard({ className = '' }: { className?: string }) {
+  return (
+    <Card className={`flex flex-col gap-4 ${className}`}>
+      <div>
+        <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-3">What we found</p>
+        <p className="text-[14px] font-semibold text-white mb-1.5">Strengths identified</p>
+        <ul className="space-y-1">
+          {['Setup is clean, just three commands.', 'Env vars are well organized with required vs optional labeled.'].map((s) => (
+            <li key={s} className="flex items-start gap-2 text-[12px] text-[#8B9DC3] leading-relaxed">
+              <span className="mt-0.5 shrink-0 text-emerald-400">✓</span>
+              {s}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="h-px bg-white/[0.06]" />
+
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <p className="text-[14px] font-semibold text-white">Issues we found</p>
+          <span className="rounded-full bg-red-500/20 px-2 py-0.5 font-mono text-[9px] font-semibold text-red-400">3 found</span>
+        </div>
+        <div className="space-y-2">
+          {GAPS.map((gap, i) => (
+            <div key={i} className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5">
+              <span className="mt-0.5 shrink-0 text-[12px] font-bold text-red-400">!</span>
+              <p className="text-[13px] font-semibold text-white leading-snug">{gap}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ─── Right stack: feature proof cards ───────────────────────────────────────
+
+const MATCHES = [
+  { initials: 'TL', name: 'Teal', color: '#7AA7FF' },
+  { initials: 'HU', name: 'Huntr', color: '#38D9FF' },
+  { initials: 'SI', name: 'Simplify', color: '#A78BFA' },
+]
+
+function StartupOutreachCard({ className = '' }: { className?: string }) {
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
+
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return
+      obs.disconnect()
+      const t1 = setTimeout(() => setSendStatus('sending'), 1400)
+      const t2 = setTimeout(() => setSendStatus('sent'), 2600)
+      return () => { clearTimeout(t1); clearTimeout(t2) }
+    }, { threshold: 0.4 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  return (
+    <Card ref={cardRef} className={`flex flex-col gap-4 ${className}`}>
+      <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-emerald-400">Startup Outreach Automation</p>
+
+      <div>
+        <StepLabel n={1} text="Find 3 matching startups" />
+        <div className="flex items-center gap-3">
+          {MATCHES.map((m) => (
+            <div key={m.name} className="flex flex-col items-center gap-1">
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-bold text-[#07111F]"
+                style={{ backgroundColor: m.color }}
+              >
+                {m.initials}
+              </div>
+              <span className="text-[12px] font-semibold text-white/75 text-center leading-tight">{m.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-px bg-white/[0.06]" />
+
+      <div>
+        <StepLabel n={2} text="Draft email to founders" />
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+          <p className="text-[12px] font-semibold text-white mb-1">alex@teal.com</p>
+          <p className="text-[12px] text-[#8B9DC3] leading-relaxed">
+            Hey Alex — I built RepoMax to turn GitHub repos into resume bullets. Been using Teal for my own job search and think there&apos;s real overlap in how we both score resumes…
+          </p>
+        </div>
+      </div>
+
+      <div className="h-px bg-white/[0.06]" />
+
+      <div className="flex items-center gap-2">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[10px] font-bold text-emerald-400">3</span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1.5 font-mono text-[11px] font-bold text-emerald-400">
+          {sendStatus === 'idle' && 'Queued to send'}
+          {sendStatus === 'sending' && (
+            <>
+              <span className="inline-flex gap-1" aria-hidden>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="inline-block h-1 w-1 rounded-full bg-current opacity-70"
+                    style={{ animation: 'dotPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}
+                  />
+                ))}
+              </span>
+              Sending
+            </>
+          )}
+          {sendStatus === 'sent' && <>Sent <Check className="h-3.5 w-3.5" /></>}
+        </span>
+      </div>
+
+      <p className="text-center font-mono text-[11px] font-bold uppercase tracking-widest text-emerald-400/80">All automated by RepoMax</p>
+    </Card>
+  )
+}
+
+const PREP_QUESTIONS = [
+  { tag: 'ARCHITECTURE', q: 'Walk me through how RepoMax turns a raw README into a score.' },
+  { tag: 'RELIABILITY', q: 'How do you stop the AI from inventing metrics that aren’t in the repo?' },
+]
+
+function InterviewPrepCard({ className = '' }: { className?: string }) {
+  return (
+    <Card className={`flex flex-col gap-4 ${className}`}>
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[9px] font-bold uppercase tracking-widest text-white/55">Interview Prep</p>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/60">2 questions</span>
+      </div>
+
+      <div className="space-y-2">
+        {PREP_QUESTIONS.map((item) => (
+          <div key={item.tag} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+            <p className="font-mono text-[9px] uppercase tracking-widest text-[#38D9FF] mb-1">{item.tag}</p>
+            <p className="text-[13px] font-semibold text-white leading-snug">{item.q}</p>
+          </div>
+        ))}
+      </div>
+
+      <MiniCTA label="See my questions →" colorClass="border-[#38D9FF]/25 bg-[#38D9FF]/10 text-[#38D9FF] hover:bg-[#38D9FF]/15" />
+    </Card>
   )
 }
 
@@ -213,8 +426,6 @@ export default function HomeReadmeLiveEdit() {
 
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }, [])
 
-  const { color: gradeColor } = grade(displayScore)
-
   // Stage 1320, readme 780 → side gap = 270, card 248 → 22px clear of README edges
   const STAGE_W  = 1320
   const README_W = 780
@@ -228,98 +439,29 @@ export default function HomeReadmeLiveEdit() {
     >
       {/* ── Desktop layout ─────────────────────────────────────────────────── */}
       <div className="hidden lg:block relative mx-auto px-4" style={{ maxWidth: `${STAGE_W + 32}px` }}>
-        <div className="relative mx-auto" style={{ maxWidth: `${STAGE_W}px` }}>
-
-          {/* README document — centered */}
-          <div
-            className="relative mx-auto rounded-xl overflow-hidden border border-[#30363d] shadow-[0_28px_90px_rgba(0,0,0,0.6)]"
-            style={{ maxWidth: `${README_W}px` }}
-          >
-            <GitHubChrome />
-            <ReadmeDoc />
+        <div
+          className="grid items-stretch gap-6 mx-auto"
+          style={{ gridTemplateColumns: `${CARD_W}px ${README_W}px ${CARD_W}px`, maxWidth: `${STAGE_W}px` }}
+        >
+          {/* Left: proof stack */}
+          <div className="flex flex-col gap-5">
+            <ScoreCard displayScore={displayScore} started={started} />
+            <FindingsCard className="mt-auto" />
           </div>
 
-          {/* ── Top-left: What we found ──────────────────────────────── */}
-          <Card className="absolute top-8 left-0 z-10" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-4">What we found</p>
-
-            <p className="text-[14px] font-semibold text-white mb-1.5">Strengths identified</p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed mb-4">
-              Setup is clean, just three commands. Env vars are well organized with required vs optional labeled.
-            </p>
-
-            <div className="h-px bg-white/[0.06] mb-4" />
-
-            <p className="text-[14px] font-semibold text-white mb-1.5">Improvement suggestions</p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed">
-              No demo link or screenshot anywhere. Opening line reads like docs not a pitch.
-            </p>
-          </Card>
-
-          {/* ── Top-right: Score + category breakdown ───────────────── */}
-          <Card className="absolute top-8 right-0 z-10 flex flex-col items-center gap-5 p-6" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <ScoreRing score={displayScore} size={136} />
-            <div className="w-full space-y-3">
-              <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-3">Category breakdown</p>
-              {CATEGORIES.map((cat) => (
-                <div key={cat.label}>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-[11.5px] text-white/80">{cat.label}</span>
-                    <span className="font-mono text-[11px] text-white/60">
-                      {cat.val}<span className="text-white/30">/{cat.max}</span>
-                    </span>
-                  </div>
-                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: started ? `${(cat.val / cat.max) * 100}%` : '0%',
-                        backgroundColor: 'rgba(255,255,255,0.55)',
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+          {/* Center: README document */}
+          <div className="flex flex-col rounded-xl overflow-hidden border border-[#30363d] shadow-[0_28px_90px_rgba(0,0,0,0.6)]">
+            <GitHubChrome />
+            <div className="flex-1 bg-white">
+              <ReadmeDoc />
             </div>
-          </Card>
+          </div>
 
-          {/* ── Bottom-left: Gaps flagged ────────────────────────────── */}
-          <Card className="absolute bottom-8 left-0 z-10 flex flex-col gap-3.5" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <div className="flex items-center justify-between">
-              <p className="text-[17px] font-bold text-white leading-snug">Gaps Flagged</p>
-              <span className="rounded-full bg-red-500/20 px-2 py-0.5 font-mono text-[9px] font-semibold text-red-400">3 found</span>
-            </div>
-            <div className="space-y-2">
-              {[
-                'No live demo or deploy link',
-                'Hook fails the 5-second scan',
-                'Tech stack not front-loaded',
-              ].map((gap, i) => (
-                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5">
-                  <span className="mt-0.5 shrink-0 text-[12px] font-bold text-red-400">!</span>
-                  <p className="text-[13px] font-semibold text-white leading-snug">{gap}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* ── Bottom-right: CTA ───────────────────────────────────── */}
-          <Card className="absolute bottom-8 right-0 z-10 flex flex-col gap-3" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30">Repo Scoring</p>
-            <p className="text-[17px] font-bold text-white leading-snug">
-              Your score in 30 seconds.
-            </p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed">
-              Grounded in what you actually built. No fluff.
-            </p>
-            <a
-              href="/#top"
-              className="mt-1 flex items-center justify-center rounded-full bg-[#38D9FF] px-5 py-2.5 text-[13px] font-semibold text-[#07111F] hover:bg-[#5DE4FF] transition-colors"
-            >
-              Score my repo →
-            </a>
-          </Card>
-
+          {/* Right: feature proof stack */}
+          <div className="flex flex-col gap-5">
+            <StartupOutreachCard />
+            <InterviewPrepCard className="mt-auto" />
+          </div>
         </div>
       </div>
 
@@ -330,36 +472,11 @@ export default function HomeReadmeLiveEdit() {
           <ReadmeDoc />
         </div>
 
-        <Card className="">
-          <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-3">What we found</p>
-          <p className="text-[13px] font-semibold text-white mb-1">Strengths identified</p>
-          <p className="text-[12px] text-[#8B9DC3] leading-relaxed mb-3">Clear setup, documented env vars, multiple deploy paths.</p>
-          <div className="h-px bg-white/[0.06] mb-3" />
-          <p className="text-[13px] font-semibold text-white mb-1">Improvement suggestions</p>
-          <p className="text-[12px] text-[#8B9DC3] leading-relaxed">No demo link, tagline too long, deploy section dominates.</p>
-        </Card>
-
-        <div className="flex items-center gap-4">
-          <Card className="flex-1 flex flex-col items-center gap-3">
-            <ScoreRing score={displayScore} size={80} />
-          </Card>
-          <Card className="flex-1">
-            <p className="text-[13px] font-semibold text-white mb-2">Fix your repo</p>
-            <a
-              href="/#top"
-              className="flex items-center justify-center rounded-full bg-[#38D9FF] px-4 py-2 text-[13px] font-semibold text-[#07111F]"
-            >
-              Score my repo →
-            </a>
-          </Card>
-        </div>
+        <ScoreCard displayScore={displayScore} started={started} />
+        <FindingsCard />
+        <StartupOutreachCard />
+        <InterviewPrepCard />
       </div>
-
-      {/* Gradient fade into tabbed section below */}
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-24 z-20"
-        style={{ background: 'linear-gradient(to bottom, transparent, #202941)' }}
-      />
     </section>
   )
 }

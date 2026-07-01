@@ -169,8 +169,7 @@ const FEATURES: {
   index: string
   label: string
   headline: string
-  description: string
-  bullets: string[]
+  caption: string
   Preview: () => React.JSX.Element
 }[] = [
   {
@@ -178,12 +177,7 @@ const FEATURES: {
     index: '01',
     label: 'Startup Outreach',
     headline: 'Turn your repo into targeted startup outreach.',
-    description: 'Matches your repo to startups in your space, finds founder emails, and writes the cold email for you.',
-    bullets: [
-      'Finds startups with a product similar to yours',
-      'Pulls the founder or CEO email for each match',
-      'Writes a personalized cold email from your repo',
-    ],
+    caption: 'Matched startups, founder emails, drafted cold email.',
     Preview: StartupOutreachPreview,
   },
   {
@@ -191,12 +185,7 @@ const FEATURES: {
     index: '02',
     label: 'Interview Prep',
     headline: 'Practice the questions recruiters actually ask.',
-    description: 'Questions built from your repo and shaped using interview data from real technical screens.',
-    bullets: [
-      'Pulled from your README, stack, and code structure',
-      'Covers architecture, tradeoffs, and shipping decisions',
-      'Each question includes a recruiter-style answer outline',
-    ],
+    caption: 'Pulled from your repo, with a recruiter-style answer outline.',
     Preview: InterviewPrepPreview,
   },
   {
@@ -204,12 +193,7 @@ const FEATURES: {
     index: '03',
     label: 'Social Post',
     headline: 'Share what you built without sounding generic.',
-    description: 'Turn your repo into a LinkedIn or X post that explains what you built, why it matters, and what was technically interesting.',
-    bullets: [
-      'LinkedIn and X drafts from your repo context',
-      'Leads with the project, not a stack list',
-      'Ready to edit and post in one pass',
-    ],
+    caption: 'LinkedIn and X drafts, ready to edit and post.',
     Preview: SocialPostPreview,
   },
 ]
@@ -287,22 +271,14 @@ export default function HomePageSections() {
               {/* Left: text */}
               <div>
                 <h3
-                  className="font-bold text-[#F8FAFC] tracking-[-0.03em] leading-[1.1] mb-4"
+                  className="font-bold text-[#F8FAFC] tracking-[-0.03em] leading-[1.1] mb-3"
                   style={{ fontSize: 'clamp(1.4rem, 2.8vw, 2rem)' }}
                 >
                   {feature.headline}
                 </h3>
-                <p className={cn('text-[14px] leading-relaxed mb-6', landingTextSecondary)}>
-                  {feature.description}
+                <p className={cn('text-[13px] leading-snug', landingTextMuted)}>
+                  {feature.caption}
                 </p>
-                <ul className="flex flex-col gap-3">
-                  {feature.bullets.map((b) => (
-                    <li key={b} className={cn('flex items-start gap-3 text-[13px]', landingTextSecondary)}>
-                      <span className="mt-[5px] h-1 w-1 rounded-full bg-[#38D9FF]/60 shrink-0" />
-                      {b}
-                    </li>
-                  ))}
-                </ul>
               </div>
 
               {/* Right: preview */}
