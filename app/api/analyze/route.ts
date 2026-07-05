@@ -4,6 +4,7 @@ import { parseRepoUrl, fetchRepoContext } from '@/lib/github'
 import { generateContent } from '@/lib/prompt'
 import { checkRateLimit } from '@/lib/ratelimit'
 import { getPostHogClient } from '@/lib/posthog-server'
+import { createAdminClient } from '@/lib/supabase-admin'
 import type { AppErrorCode } from '@/types'
 import { ERROR_FAULT } from '@/types'
 
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await generateContent(repoContext, targetRole)
+    const score = (result as { repoScore?: { total?: number; label?: string; summary?: string } }).repoScore
     getPostHogClient().capture({
       distinctId,
       event: 'repo_scored',
@@ -101,8 +103,20 @@ export async function POST(req: NextRequest) {
         repo_owner: owner,
         repo_name: repo,
         target_role: targetRole ?? null,
-        score_total: (result as { repoScore?: { total?: number } }).repoScore?.total ?? null,
+        score_total: score?.total ?? null,
       },
+    })
+    after(async () => {
+      const { error } = await createAdminClient().from('repo_scores').insert({
+        user_id: null,
+        repo_url: repoUrl,
+        repo_name: repo,
+        score: score?.total ?? null,
+        label: score?.label ?? null,
+        summary: score?.summary ?? null,
+        result,
+      })
+      if (error) console.error('[RepoMax] repo_scores insert failed:', error)
     })
     return NextResponse.json(result)
   } catch (err) {
