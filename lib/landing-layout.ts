@@ -55,4 +55,4 @@ export const landingMeta = 'font-mono text-[10px] text-[#8B9CC4]'
 
 export const sectionYCompact = 'py-14 sm:py-16'
 
-export type FeatureKey = 'outreach' | 'interview' | 'social'
+export type FeatureKey = 'outreach' | 'interview'

@@ -72,8 +72,18 @@ function GeneratePageContent() {
     supabase.auth.getSession().then(({ data }) => {
       setIsAuthed(!!data.session)
     })
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setIsAuthed(!!session)
+      if (event === 'SIGNED_IN' && session) {
+        const { created_at, last_sign_in_at } = session.user
+        const isNewAccount =
+          !!created_at &&
+          !!last_sign_in_at &&
+          Math.abs(new Date(last_sign_in_at).getTime() - new Date(created_at).getTime()) < 5000
+        if (isNewAccount) {
+          posthog.capture('account_created', { method: session.user.app_metadata?.provider ?? 'unknown' })
+        }
+      }
     })
     return () => listener.subscription.unsubscribe()
   }, [])

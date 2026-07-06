@@ -272,11 +272,6 @@ export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed 
         active={activeTab}
         showReview={hasReview}
         onSelect={(id) => {
-          if (id === 'resume' && !isAuthed) {
-            posthog.capture('output_tab_auth_gate', { tab: id })
-            onRequireAuth?.(() => setActiveTab('resume'))
-            return
-          }
           posthog.capture('output_tab_switched', { tab: id, previous_tab: activeTab })
           setActiveTab(id)
         }}
@@ -299,7 +294,13 @@ export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed 
             activeTab === 'review' && data?.repoScore ? (
               <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} saveStatus={saveStatus} onSave={onSaveScore} />
             ) : (
-              <OutputCard content={data?.resumeBullets ?? []} empty={false} tabId="resume" />
+              <OutputCard
+                content={data?.resumeBullets ?? []}
+                empty={false}
+                tabId="resume"
+                isAuthed={isAuthed}
+                onRequireAuth={onRequireAuth}
+              />
             )
           ) : activeTab === 'review' ? (
             <RepoScoreCardGhost />

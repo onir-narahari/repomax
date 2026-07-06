@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { cn } from '@/lib/utils'
 import {
@@ -21,144 +21,321 @@ import {
   testimonialsSectionBorder,
 } from '@/lib/landing-layout'
 
-// ─── Preview: Startup Outreach ────────────────────────────────────────────────
+// ─── Shared simulation primitives ──────────────────────────────────────────────
 
-function StartupOutreachPreview() {
-  const ROWS = [
-    { idx: '01', tag: 'EDTECH', name: 'StudyFetch', desc: 'AI flashcards, quizzes, and tutoring' },
-    { idx: '02', tag: 'EDTECH', name: 'Knowt',      desc: 'Notes → study guides → practice tests' },
-    { idx: '03', tag: 'EDTECH', name: 'Quizgecko',  desc: 'AI quiz generator from PDFs and docs'  },
-  ]
+const REPO_SLUG = 'MSAbhishek22/CramMaster'
+const TYPE_SPEED_MS = 32
+const TYPE_DURATION_MS = REPO_SLUG.length * TYPE_SPEED_MS + 400
+
+type LogEntry = { key: string; delay: number; col: 'left' | 'right'; render: () => React.ReactNode }
+
+/** Reveals `text` one character at a time, once, on mount. */
+function useTypewriter(text: string, speedMs: number) {
+  const [shown, setShown] = useState('')
+  useEffect(() => {
+    let i = 0
+    const t = window.setInterval(() => {
+      i += 1
+      setShown(text.slice(0, i))
+      if (i >= text.length) window.clearInterval(t)
+    }, speedMs)
+    return () => window.clearInterval(t)
+  }, [text, speedMs])
+  return { shown, done: shown === text }
+}
+
+/** Reveals `entries` one at a time (cumulative — nothing disappears), starting
+ *  `startDelayMs` after mount. Runs once and holds on the fully-built state. */
+function useSimulationTimeline(entries: LogEntry[], startDelayMs: number) {
+  const [visibleCount, setVisibleCount] = useState(0)
+
+  useEffect(() => {
+    const timeouts: number[] = []
+    let acc = startDelayMs
+    entries.forEach((entry, i) => {
+      acc += entry.delay
+      timeouts.push(window.setTimeout(() => setVisibleCount(i + 1), acc))
+    })
+    return () => timeouts.forEach((t) => window.clearTimeout(t))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, startDelayMs])
+
+  return visibleCount
+}
+
+function SimulationCard({
+  label,
+  status,
+  children,
+}: {
+  label: string
+  status: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <div className={cn(landingSurface, 'overflow-hidden')}>
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#3d4a66]">
-        <span className={cn(landingAccentLabel, 'mb-0')}>Startup Outreach · CramMaster</span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400">3 matched</span>
+        <span className={cn(landingAccentLabel, 'mb-0')}>{label}</span>
+        {status}
       </div>
-      {ROWS.map((r) => (
-        <div key={r.idx} className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#3d4a66]/60">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={landingMeta}>{r.idx}</span>
-              <span className={cn(landingMeta, 'opacity-50')}>·</span>
-              <span className={landingTag}>{r.tag}</span>
-            </div>
-            <p className="text-[14px] font-semibold text-[#F8FAFC]">{r.name}</p>
-            <p className={cn('text-[12px] mt-0.5', landingTextSecondary)}>{r.desc}</p>
-          </div>
-          <span className="shrink-0 mt-1 rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">✓ match</span>
-        </div>
-      ))}
-      <div className="px-5 py-4">
-        <p className={cn(sectionLabel, 'mb-3')}>Drafted email</p>
-        <div className="space-y-1.5 mb-3">
-          <p className="text-[12px]">
-            <span className={cn(landingMeta, 'mr-2')}>To:</span>
-            <span className={landingTextSecondary}>sarah@studyfetch.com</span>
-          </p>
-          <p className="text-[12px]">
-            <span className={cn(landingMeta, 'mr-2')}>Subject:</span>
-            <span className="text-[#F8FAFC]">built an AI study tool in your space</span>
-          </p>
-        </div>
-        <p className={cn('text-[12px] leading-relaxed', landingTextSecondary)}>
-          Hey Sarah, I&apos;m a CS student who built CramMaster, an AI study app that turns notes into flashcards and quizzes. Saw StudyFetch is in the same space and thought my take on generation quality might be worth a quick chat. Open to 15 minutes?
-        </p>
-        <p className={cn(sectionLabel, 'mt-3 mb-0')}>Drafted from repo · edit before sending</p>
+      {children}
+    </div>
+  )
+}
+
+function RepoUrlRow({ shown }: { shown: string }) {
+  return (
+    <div className="px-5 py-4 border-b border-[#3d4a66]">
+      <p className={cn(sectionLabel, 'mb-2')}>Paste a repo</p>
+      <div className="flex items-center rounded-lg border border-[#3d4a66] bg-[#131a2c] px-3 py-2.5">
+        <span className="font-mono text-[12px] text-[#6B7A9A]">github.com/</span>
+        <span className="font-mono text-[12px] text-[#F8FAFC]">{shown}</span>
+        <span className="ml-0.5 inline-block h-[13px] w-[1.5px] bg-[#38D9FF] animate-pulse" />
       </div>
     </div>
   )
 }
 
-// ─── Preview: Interview Prep ──────────────────────────────────────────────────
-
-function InterviewPrepPreview() {
-  const QS = [
-    { idx: '01', tag: 'ARCHITECTURE', q: 'Walk me through how CramMaster turns raw notes into flashcards.' },
-    { idx: '02', tag: 'RELIABILITY',  q: 'How do you stop bad AI output from reaching students?' },
-    { idx: '03', tag: 'SCALE',        q: 'What breaks first if 10,000 students upload notes at once?' },
-  ]
+/** All entries render immediately (space reserved from frame one — no layout jump,
+ *  no scrolling), each fading in at its scheduled turn based on `visibleCount`. */
+function RevealItem({ entry, index, visibleCount }: { entry: LogEntry; index: number; visibleCount: number }) {
+  const visible = index < visibleCount
   return (
-    <div className={cn(landingSurface, 'overflow-hidden')}>
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#3d4a66]">
-        <span className={cn(landingAccentLabel, 'mb-0')}>Interview Prep · CramMaster</span>
-        <span className={cn(landingTag, 'normal-case tracking-[0.1em]')}>3 questions</span>
-      </div>
-      {QS.map((item) => (
-        <div key={item.idx} className="px-5 py-4 border-b border-[#3d4a66]/60">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className={landingMeta}>{item.idx}</span>
-            <span className={cn(landingMeta, 'opacity-50')}>·</span>
-            <span className={landingTag}>{item.tag}</span>
-          </div>
-          <p className="text-[13px] text-[#F8FAFC] leading-snug">{item.q}</p>
+    <motion.div animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 6 }} transition={{ duration: 0.3 }}>
+      {entry.render()}
+    </motion.div>
+  )
+}
+
+/** Two side-by-side columns — left = what got found/generated, right = what happens
+ *  with it — so the full 0→1 process is visible together on one card, no scrolling. */
+function SimulationColumns({
+  entries,
+  visibleCount,
+  leftLabel,
+  rightLabel,
+}: {
+  entries: LogEntry[]
+  visibleCount: number
+  leftLabel: string
+  rightLabel: string
+}) {
+  const left = entries.filter((e) => e.col === 'left')
+  const right = entries.filter((e) => e.col === 'right')
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-[#3d4a66]">
+      <div className="px-5 py-4 border-t sm:border-t-0 border-[#3d4a66]/60">
+        <p className={cn(sectionLabel, 'mb-3')}>{leftLabel}</p>
+        <div className="space-y-3">
+          {left.map((e) => (
+            <RevealItem key={e.key} entry={e} index={entries.indexOf(e)} visibleCount={visibleCount} />
+          ))}
         </div>
-      ))}
-      <div className="px-5 py-4 border-l-2 border-[#38D9FF]">
-        <p className={cn(landingAccentLabel, 'mb-2')}>Sample answer angle</p>
-        <p className="text-[12px] text-[#F8FAFC] leading-snug mb-2">
+      </div>
+      <div className="px-5 py-4 border-t sm:border-t-0 border-[#3d4a66]/60">
+        <p className={cn(sectionLabel, 'mb-3')}>{rightLabel}</p>
+        <div className="space-y-3">
+          {right.map((e) => (
+            <RevealItem key={e.key} entry={e} index={entries.indexOf(e)} visibleCount={visibleCount} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatusLine({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#38D9FF]">
+      {children}
+    </p>
+  )
+}
+
+// ─── Simulation: Startup Outreach ──────────────────────────────────────────────
+
+const OUTREACH_ROWS = [
+  { idx: '01', tag: 'EDTECH', name: 'StudyFetch', desc: 'AI flashcards, quizzes, and tutoring' },
+  { idx: '02', tag: 'EDTECH', name: 'Knowt',      desc: 'Notes → study guides → practice tests' },
+  { idx: '03', tag: 'EDTECH', name: 'Quizgecko',  desc: 'AI quiz generator from PDFs and docs'  },
+]
+
+const OUTREACH_MATCHED_AT = 1 + OUTREACH_ROWS.length // status line + 3 rows
+
+const OUTREACH_ENTRIES: LogEntry[] = [
+  {
+    key: 'status-match',
+    delay: 400,
+    col: 'left',
+    render: () => <StatusLine>Matching startups…</StatusLine>,
+  },
+  ...OUTREACH_ROWS.map((r, i) => ({
+    key: `row-${r.idx}`,
+    delay: i === 0 ? 500 : 350,
+    col: 'left' as const,
+    render: () => (
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={landingMeta}>{r.idx}</span>
+            <span className={cn(landingMeta, 'opacity-50')}>·</span>
+            <span className={landingTag}>{r.tag}</span>
+          </div>
+          <p className="text-[13px] font-semibold text-[#F8FAFC]">{r.name}</p>
+          <p className={cn('text-[11px] mt-0.5', landingTextSecondary)}>{r.desc}</p>
+        </div>
+        <span className="shrink-0 mt-0.5 whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">✓ match</span>
+      </div>
+    ),
+  })),
+  {
+    key: 'status-draft',
+    delay: 600,
+    col: 'right',
+    render: () => <StatusLine>Drafting email…</StatusLine>,
+  },
+  {
+    key: 'email',
+    delay: 500,
+    col: 'right',
+    render: () => (
+      <div>
+        <div className="space-y-1 mb-2">
+          <p className="text-[11px]">
+            <span className={cn(landingMeta, 'mr-2')}>To:</span>
+            <span className={landingTextSecondary}>sarah@studyfetch.com</span>
+          </p>
+          <p className="text-[11px]">
+            <span className={cn(landingMeta, 'mr-2')}>Subject:</span>
+            <span className="text-[#F8FAFC]">built an AI study tool in your space</span>
+          </p>
+        </div>
+        <p className={cn('text-[11px] leading-relaxed', landingTextSecondary)}>
+          Hey Sarah, I&apos;m a CS student who built CramMaster, an AI study app that turns notes into flashcards and quizzes. Saw StudyFetch is in the same space and thought my take on generation quality might be worth a quick chat. Open to 15 minutes?
+        </p>
+      </div>
+    ),
+  },
+  {
+    key: 'status-send',
+    delay: 900,
+    col: 'right',
+    render: () => <StatusLine>Sending from you@gmail.com…</StatusLine>,
+  },
+  {
+    key: 'sent',
+    delay: 700,
+    col: 'right',
+    render: () => (
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2">
+        <span className="text-emerald-400 text-[12px]">✓</span>
+        <span className="text-[11px] font-semibold text-emerald-300">Sent to sarah@studyfetch.com</span>
+      </div>
+    ),
+  },
+]
+
+function StartupOutreachSimulation() {
+  const visibleCount = useSimulationTimeline(OUTREACH_ENTRIES, TYPE_DURATION_MS)
+  const { shown } = useTypewriter(REPO_SLUG, TYPE_SPEED_MS)
+
+  const status = (
+    <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-400">
+      {visibleCount >= OUTREACH_MATCHED_AT ? '3 matched' : 'scanning…'}
+    </span>
+  )
+
+  return (
+    <SimulationCard label="Startup Outreach · CramMaster" status={status}>
+      <RepoUrlRow shown={shown} />
+      <SimulationColumns
+        entries={OUTREACH_ENTRIES}
+        visibleCount={visibleCount}
+        leftLabel="Matched startups"
+        rightLabel="Outreach email"
+      />
+    </SimulationCard>
+  )
+}
+
+// ─── Simulation: Interview Prep ────────────────────────────────────────────────
+
+const INTERVIEW_QS = [
+  { idx: '01', tag: 'ARCHITECTURE', q: 'Walk me through how CramMaster turns raw notes into flashcards.' },
+  { idx: '02', tag: 'RELIABILITY',  q: 'How do you stop bad AI output from reaching students?' },
+  { idx: '03', tag: 'SCALE',        q: 'What breaks first if 10,000 students upload notes at once?' },
+]
+
+const INTERVIEW_QUESTIONS_AT = 1 + INTERVIEW_QS.length // status line + 3 questions
+
+const INTERVIEW_ENTRIES: LogEntry[] = [
+  {
+    key: 'status-generate',
+    delay: 400,
+    col: 'left',
+    render: () => <StatusLine>Generating interview questions…</StatusLine>,
+  },
+  ...INTERVIEW_QS.map((item, i) => ({
+    key: `q-${item.idx}`,
+    delay: i === 0 ? 500 : 350,
+    col: 'left' as const,
+    render: () => (
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className={landingMeta}>{item.idx}</span>
+          <span className={cn(landingMeta, 'opacity-50')}>·</span>
+          <span className={landingTag}>{item.tag}</span>
+        </div>
+        <p className="text-[12px] text-[#F8FAFC] leading-snug">{item.q}</p>
+      </div>
+    ),
+  })),
+  {
+    key: 'coach',
+    delay: 700,
+    col: 'right',
+    render: () => (
+      <div className="border-l-2 border-[#38D9FF] pl-3">
+        <p className={cn(landingAccentLabel, 'mb-1.5')}>What to listen for</p>
+        <p className="text-[11px] text-[#F8FAFC] leading-snug mb-1.5">
           Walk through the full pipeline: input → chunking → LLM generation → validation → storage.
         </p>
-        <ol className="space-y-1 text-[12px] leading-snug text-[#B8C4DC]">
+        <ol className="space-y-1 text-[11px] leading-snug text-[#B8C4DC]">
           <li className="flex gap-2"><span className="text-[#38D9FF] shrink-0">→</span>Upload PDF, extract and chunk text</li>
           <li className="flex gap-2"><span className="text-[#38D9FF] shrink-0">→</span>LLM returns Q&amp;A pairs via JSON schema</li>
           <li className="flex gap-2"><span className="text-[#38D9FF] shrink-0">→</span>Validate output, drop malformed cards</li>
         </ol>
       </div>
-    </div>
+    ),
+  },
+  {
+    key: 'ready',
+    delay: 900,
+    col: 'right',
+    render: () => <p className="text-[12px] font-semibold text-emerald-300">✓ Ready for these questions</p>,
+  },
+]
+
+function InterviewPrepSimulation() {
+  const visibleCount = useSimulationTimeline(INTERVIEW_ENTRIES, TYPE_DURATION_MS)
+  const { shown } = useTypewriter(REPO_SLUG, TYPE_SPEED_MS)
+
+  const status = (
+    <span className={cn(landingTag, 'normal-case tracking-[0.1em]')}>
+      {visibleCount >= INTERVIEW_QUESTIONS_AT ? '3 questions' : 'scanning…'}
+    </span>
   )
-}
 
-// ─── Preview: Social Post ─────────────────────────────────────────────────────
-
-function SocialPostPreview() {
-  const [variant, setVariant] = useState<'linkedin' | 'x'>('linkedin')
-  const posts = {
-    linkedin: `I built CramMaster because studying from notes is still too manual.\n\nThe app turns study material into AI generated flashcards and quizzes, so students can practice faster instead of spending hours making study sets.\n\nThe hardest part was making the output actually useful, not just technically possible.`,
-    x: `built CramMaster → turns your notes into AI flashcards + quizzes so you can actually study instead of making study sets.\n\nrepo: github.com/MSAbhishek22/CramMaster`,
-  }
   return (
-    <div className={cn(landingSurface, 'overflow-hidden')}>
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#3d4a66]">
-        <span className={cn(landingAccentLabel, 'mb-0')}>Social Post · CramMaster</span>
-        <div className="flex items-center gap-1">
-          {(['linkedin', 'x'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setVariant(v)}
-              className={cn(
-                'rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] transition-all duration-200',
-                variant === v ? 'bg-[#38D9FF] text-[#07111F]' : cn(landingTextMuted, 'hover:text-[#F8FAFC]'),
-              )}
-            >
-              {v === 'linkedin' ? 'LinkedIn' : 'X'}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-[#3d4a66]/60">
-        <div className="h-8 w-8 rounded-full bg-[#2a3550] flex items-center justify-center shrink-0 border border-[#4a5878]">
-          <span className="text-[11px] font-semibold text-[#F8FAFC]">CS</span>
-        </div>
-        <div>
-          <p className="text-[13px] font-semibold text-[#F8FAFC]">CS Student</p>
-          <p className={cn('text-[11px]', landingTextMuted)}>github.com/MSAbhishek22</p>
-        </div>
-      </div>
-      <div className="px-5 py-4">
-        <p className={cn('text-[13px] leading-relaxed whitespace-pre-line', landingTextSecondary)}>{posts[variant]}</p>
-      </div>
-      {variant === 'linkedin' && (
-        <div className="px-5 py-3 border-t border-[#3d4a66]/60 flex flex-wrap gap-x-2">
-          {['#buildinpublic', '#csStudent', '#AI', '#edtech'].map((t) => (
-            <span key={t} className="text-[11px] text-[#9BB4FF]">{t}</span>
-          ))}
-        </div>
-      )}
-      <div className="px-5 py-2.5 border-t border-[#3d4a66]/60">
-        <p className={cn(sectionLabel, 'mb-0')}>Generated from repo · edit before posting</p>
-      </div>
-    </div>
+    <SimulationCard label="Interview Prep · CramMaster" status={status}>
+      <RepoUrlRow shown={shown} />
+      <SimulationColumns
+        entries={INTERVIEW_ENTRIES}
+        visibleCount={visibleCount}
+        leftLabel="Interview questions"
+        rightLabel="How to answer"
+      />
+    </SimulationCard>
   )
 }
 
@@ -169,7 +346,6 @@ const FEATURES: {
   index: string
   label: string
   headline: string
-  caption: string
   Preview: () => React.JSX.Element
 }[] = [
   {
@@ -177,24 +353,14 @@ const FEATURES: {
     index: '01',
     label: 'Startup Outreach',
     headline: 'Turn your repo into targeted startup outreach.',
-    caption: 'Matched startups, founder emails, drafted cold email.',
-    Preview: StartupOutreachPreview,
+    Preview: StartupOutreachSimulation,
   },
   {
     key: 'interview',
     index: '02',
     label: 'Interview Prep',
     headline: 'Practice the questions recruiters actually ask.',
-    caption: 'Pulled from your repo, with a recruiter-style answer outline.',
-    Preview: InterviewPrepPreview,
-  },
-  {
-    key: 'social',
-    index: '03',
-    label: 'Social Post',
-    headline: 'Share what you built without sounding generic.',
-    caption: 'LinkedIn and X drafts, ready to edit and post.',
-    Preview: SocialPostPreview,
+    Preview: InterviewPrepSimulation,
   },
 ]
 
@@ -202,7 +368,7 @@ const FEATURES: {
 
 function FeatureTabs({ active, setActive }: { active: FeatureKey; setActive: (k: FeatureKey) => void }) {
   return (
-    <div className={cn('grid grid-cols-3 border-b', featuresSectionBorder)}>
+    <div className={cn('grid grid-cols-2 border-b', featuresSectionBorder)}>
       {FEATURES.map((f) => {
         const isActive = f.key === active
         return (
@@ -267,21 +433,13 @@ export default function HomePageSections() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            <div className="pt-8 grid grid-cols-1 lg:grid-cols-[1fr_1.25fr] gap-8 lg:gap-12 items-start">
-              {/* Left: text */}
-              <div>
-                <h3
-                  className="font-bold text-[#F8FAFC] tracking-[-0.03em] leading-[1.1] mb-3"
-                  style={{ fontSize: 'clamp(1.4rem, 2.8vw, 2rem)' }}
-                >
-                  {feature.headline}
-                </h3>
-                <p className={cn('text-[13px] leading-snug', landingTextMuted)}>
-                  {feature.caption}
-                </p>
-              </div>
-
-              {/* Right: preview */}
+            <div className="pt-8">
+              <h3
+                className="font-bold text-[#F8FAFC] tracking-[-0.03em] leading-[1.1] mb-5 max-w-2xl"
+                style={{ fontSize: 'clamp(1.4rem, 2.8vw, 2rem)' }}
+              >
+                {feature.headline}
+              </h3>
               <feature.Preview />
             </div>
           </motion.div>

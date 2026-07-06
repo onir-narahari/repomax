@@ -1,58 +1,43 @@
 ---
 name: project-landing-layout
-description: Landing page layout — 90vh hero with aurora background, product peek card bleeding into demo section, no divider
+description: Landing page layout — full-height hero (no demo card), GitHub README live-edit section, diagnostic cards section with bottom CTA
 metadata:
   type: project
 ---
 
-The landing page (`app/page.tsx`) is composed of two sections that feel continuous — no hard dividing line.
+The landing page (`app/page.tsx`) is composed of three sections:
+
+1. `LandingHero` — full-height hero
+2. `HomeReadmeLiveEdit` — GitHub README document with cycling annotations
+3. `HomePageSections` — diagnostic cards + bottom CTA
 
 **Hero section** (`LandingHero.tsx`):
-- `min-h-[90vh]` — updated from 85vh to accommodate product peek card bleed
-- `overflow-visible` — required so the product peek card can bleed below the hero boundary
-- `bg-[#0a1020]` background (HeroBackground renders over this)
-- `max-w-5xl` centered content column
-- Headline: "Make your repo / as strong as your code." — two `<span className="block">` lines at `text-[2.75rem] sm:text-[4rem] lg:text-[6.5rem]`, `leading-[0.92] tracking-[-0.03em]`
-- Sub-copy: "Paste your GitHub repo. Get a Repo Score, specific gaps, and resume bullets — based on what's actually in your code."
-- Content div padding: `pt-24 pb-56 sm:pt-28 sm:pb-64 lg:pt-32 lg:pb-72` (tall bottom padding to keep content above the card)
-- Nav: wordmark left + "Free — no account needed" badge right
-- No bounce arrow (removed in favor of product peek card)
-- Stat pills row below form: 3 `rounded-full border border-white/10` spans
+- `min-h-dvh flex-col overflow-visible bg-[#131929]`
+- **No HeroDemoPreview** — removed. Hero ends after the form CTA. `heroOverlap` is NOT imported or used.
+- Content: wordmark nav + headline ("Your repo is losing you interviews.") + subtext + `HeroRepoForm`
+- Headline: two `<span>` lines, `text-[2rem] sm:text-[2.75rem] lg:text-[3.25rem]`, `leading-[0.88] tracking-[-0.03em]`
+- Nav: wordmark left + `ReposScoredNavBadge` + "Free — no account needed" badge right
+- No stat pills, no bounce arrow, no product peek card
 
-**Product peek card** (static, inside `LandingHero.tsx`):
-- `absolute bottom-0 left-1/2 z-20 -translate-x-1/2 translate-y-[40%]`
-- `hidden sm:block` — hidden on mobile, visible sm+
-- `max-w-2xl`, glass-morphism card: `bg-[#0d1530]/90 backdrop-blur-md border border-white/10 rounded-2xl`
-- Header: blue score badge `64/100` + `alexchen/portfolio-site` mono slug + amber "Needs work" pill
-- Two gap items with colored dots (red = no demo link, amber = missing install instructions)
-- Resume bullet preview section at bottom
-- Creates Cluely-style "product peeking from hero" depth effect
+**HomeReadmeLiveEdit** (`components/HomeReadmeLiveEdit.tsx`):
+- `bg-[#131929] border-t border-[#303A55] py-20 sm:py-28`
+- Full GitHub-styled README document (white bg) with real GitHub chrome
+- See [[project-readme-live-edit]] for complete details
+
+**HomePageSections** (`components/HomePageSections.tsx`):
+- `bg-[#202941] border-t border-[#303A55] pt-20 pb-20 sm:pt-24 sm:pb-28`
+- `pt-20 sm:pt-24` (no hero overlap pad needed — HeroDemoPreview is gone)
+- 2×3 grid of diagnostic cards + radial glow final CTA with second `HeroRepoForm`
 
 **HeroBackground** (`HeroBackground.tsx`):
-- Replaced contribution grid with layered CSS gradient aurora scene
-- Base: `bg-[#060a18]` deep navy
-- Aurora horizon: blue elliptical radial gradient rising from `50% 105%`
-- Left/right depth accents: indigo/blue radial gradients at bottom corners
-- Top fade (h-32) for nav readability; bottom fade (h-48) to blend into product peek
-- No canvas elements, no imported sub-components — pure CSS gradients
+- Dark base `bg-[#131929]`
+- Layered CSS gradient aurora: purple ellipse from bottom, left/right depth accents, top fade, noise texture overlay
+- No canvas, no imported sub-components
 
-**HomePageSections** (`HomePageSections.tsx`) — 4 sections, all `bg-[#060a18]`:
-1. `WhatRepoMaxCatches` — `pt-[320px] sm:pt-[360px]` to clear the HeroDemoPreview card bleed. "Most repos fail the 30-second scan." headline. 2×3 grid of dark diagnostic cards (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3`), each with colored dot (red/amber), bold label, 1-sentence body. Uses `whileInView` scroll-triggered motion.
-2. `HowItWorks` — `py-24 sm:py-32`. "How it works" mono label. 3 numbered step cards (`grid-cols-1 sm:grid-cols-3`), step number in mono 0x format, bold label, short body. Hover state on each card.
-3. `RecruiterReality` — `py-24 sm:py-32`. "Recruiters don't run your code." headline. Single wide card (`max-w-3xl`) with two-column table layout: "What they check" (left, white/60) vs "If it's missing" (right, red/60 italic). 5 rows staggered-in with `whileInView`. Closing line: "RepoMax fixes all of this."
-4. `FinalCTA` — `py-32 sm:py-40`. Blue radial glow aurora. "Test your repo before recruiters do." bold headline, sub-copy, `HeroRepoForm` centered at `max-w-[420px]`.
+**CTA button text**: "Score My Repo"
 
-**HeroDemoPreview** (static side-by-side, no animation):
-- Left panel: "Before RepoMax" red header, score 31/100, vague README content, 4 gap items
-- Right panel: "After RepoMax" green header, score 87/100, improved README, tech badges, resume bullet
-- Center "R" medallion at 50% vertical
-- Glow div uses `inset-x-0` (NOT `-inset-x-8`) to prevent mobile horizontal overflow
-- Right spacer in title bar is `hidden sm:block` to prevent mobile overflow
+**Why:** HeroDemoPreview (before/after split card) removed to eliminate the hero overlap complexity and replace with a more impactful full-document GitHub README section.
 
-**CTA button text**: "Score My Repo" (updated from "See what a recruiter sees")
+**How to apply:** Do not re-add `heroOverlap` to `LandingHero`. Do not re-add `heroOverlapPad` to `HomeReadmeLiveEdit`. The `HomePageSections` padding is `pt-20 sm:pt-24` because there's no card bleed-down anymore.
 
-**Why:** Redesigned to match Cluely.com premium feel — dimensional layered hero with product visible before user scrolls.
-
-**How to apply:** Do not re-introduce `border-t` between hero and demo. Do not revert to `overflow-hidden` on the section or the card will be clipped. Do not revert `min-h` to 85vh without also removing the peek card. Do not re-add the bounce arrow. The demo section is `HomeReadmeDemo`, not `HomeInteractiveSection`.
-
-Related: [[project-hero-form]], [[project-score-ticker]]
+Related: [[project-hero-form]], [[project-score-ticker]], [[project-readme-live-edit]]

@@ -8,6 +8,8 @@ interface Props {
   content: string[]
   empty?: boolean
   tabId?: 'resume'
+  isAuthed?: boolean
+  onRequireAuth?: (action: () => void) => void
 }
 
 const CARD_CLASS =
@@ -120,11 +122,53 @@ function BulletRow({ bullet, index }: { bullet: string; index: number }) {
   )
 }
 
-export default function OutputCard({ content, empty = false }: Props) {
+function LockedBulletRow({ bullet, index }: { bullet: string; index: number }) {
+  return (
+    <li className="flex items-start gap-4 py-[1.125rem] last:pb-5" aria-hidden="true">
+      <span className="mt-[3px] min-w-[1.5rem] font-mono text-[11px] tabular-nums text-[#687386]">
+        {String(index + 1).padStart(2, '0')}
+      </span>
+      <p className={`flex-1 text-[0.9375rem] leading-[1.65] text-[#F5F3EA]/90 ${BLUR_CLASS}`}>
+        {bullet}
+      </p>
+    </li>
+  )
+}
+
+function UnlockOverlay({ count, onUnlock }: { count: number; onUnlock: () => void }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center px-6">
+      <div className="w-full max-w-[280px] rounded-xl border border-[#242B3A] bg-[#0D111C]/96 backdrop-blur-sm px-5 py-5 text-center shadow-2xl">
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#7AA7FF]">
+          {count} more bullet{count > 1 ? 's' : ''}
+        </p>
+        <p className="mb-4 text-[14px] font-semibold text-[#F5F3EA]">
+          Create a free account to see {count > 1 ? 'them' : 'it'}
+        </p>
+        <button
+          onClick={onUnlock}
+          className="w-full rounded-lg bg-[#7AA7FF] py-2.5 text-[13px] font-semibold text-[#070A12] transition hover:bg-[#93BBFF]"
+        >
+          Create free account →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function OutputCard({ content, empty = false, isAuthed = true, onRequireAuth }: Props) {
   const allText = content.join('\n')
   const { copied, copy } = useCopy(allText, 'resume_bullets_copied', { bullet_count: content.length })
 
   if (empty) return <EmptyState />
+
+  const locked = !isAuthed && content.length > 1
+  const [first, ...rest] = content
+
+  const handleUnlock = () => {
+    posthog.capture('resume_bullets_unlock_clicked')
+    onRequireAuth?.(() => {})
+  }
 
   return (
     <div className={CARD_CLASS}>
@@ -132,13 +176,30 @@ export default function OutputCard({ content, empty = false }: Props) {
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#687386]">
           Resume Bullets
         </p>
-        <CopyButton copied={copied} onCopy={copy} label="Copy all bullets" />
+        {!locked && <CopyButton copied={copied} onCopy={copy} label="Copy all bullets" />}
       </div>
-      <ul className="divide-y divide-[#242B3A] px-6">
-        {content.map((bullet, i) => (
-          <BulletRow key={i} bullet={bullet} index={i} />
-        ))}
-      </ul>
+
+      {locked ? (
+        <>
+          <ul className="divide-y divide-[#242B3A] px-6">
+            <BulletRow bullet={first} index={0} />
+          </ul>
+          <div className="relative border-t border-[#242B3A]">
+            <ul className="divide-y divide-[#242B3A] px-6">
+              {rest.map((bullet, i) => (
+                <LockedBulletRow key={i} bullet={bullet} index={i + 1} />
+              ))}
+            </ul>
+            <UnlockOverlay count={rest.length} onUnlock={handleUnlock} />
+          </div>
+        </>
+      ) : (
+        <ul className="divide-y divide-[#242B3A] px-6">
+          {content.map((bullet, i) => (
+            <BulletRow key={i} bullet={bullet} index={i} />
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

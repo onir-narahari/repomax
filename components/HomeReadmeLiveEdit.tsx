@@ -216,9 +216,11 @@ export default function HomeReadmeLiveEdit() {
   const { color: gradeColor } = grade(displayScore)
 
   // Stage 1320, readme 780 → side gap = 270, card 248 → 22px clear of README edges
-  const STAGE_W  = 1320
-  const README_W = 780
-  const CARD_W   = 248
+  const STAGE_W      = 1320
+  const README_W     = 780
+  const CARD_W       = 248
+  const WIDE_CARD_W  = 264
+  const CTA_CARD_W   = 288
 
   return (
     <section
@@ -239,21 +241,30 @@ export default function HomeReadmeLiveEdit() {
             <ReadmeDoc />
           </div>
 
-          {/* ── Top-left: What we found ──────────────────────────────── */}
-          <Card className="absolute top-8 left-0 z-10" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-4">What we found</p>
-
-            <p className="text-[14px] font-semibold text-white mb-1.5">Strengths identified</p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed mb-4">
-              Setup is clean, just three commands. Env vars are well organized with required vs optional labeled.
-            </p>
-
-            <div className="h-px bg-white/[0.06] mb-4" />
-
-            <p className="text-[14px] font-semibold text-white mb-1.5">Improvement suggestions</p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed">
-              No demo link or screenshot anywhere. Opening line reads like docs not a pitch.
-            </p>
+          {/* ── Top-left: Gaps flagged ───────────────────────────────── */}
+          <Card className="absolute top-8 -left-4 z-10 flex flex-col gap-3.5" style={{ width: `${WIDE_CARD_W}px` } as React.CSSProperties}>
+            <div className="flex items-center justify-between">
+              <p className="text-[17px] font-bold text-white leading-snug">Gaps Flagged</p>
+              <span className="rounded-full bg-red-500/20 px-2 py-0.5 font-mono text-[9px] font-semibold text-red-400">3 found</span>
+            </div>
+            <div className="space-y-2">
+              {[
+                'No live demo or deploy link',
+                'Hook fails the 5-second scan',
+                'Tech stack not front-loaded',
+              ].map((gap, i) => (
+                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5">
+                  <span className="mt-0.5 shrink-0 text-[12px] font-bold text-red-400">!</span>
+                  <p className="text-[13px] font-semibold text-white leading-snug">{gap}</p>
+                </div>
+              ))}
+            </div>
+            <a
+              href="/#top"
+              className="mt-1 flex items-center justify-center rounded-full bg-red-500 px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-red-400 transition-colors"
+            >
+              Find your repo&apos;s gaps →
+            </a>
           </Card>
 
           {/* ── Top-right: Score + category breakdown ───────────────── */}
@@ -283,40 +294,52 @@ export default function HomeReadmeLiveEdit() {
             </div>
           </Card>
 
-          {/* ── Bottom-left: Gaps flagged ────────────────────────────── */}
-          <Card className="absolute bottom-8 left-0 z-10 flex flex-col gap-3.5" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <div className="flex items-center justify-between">
-              <p className="text-[17px] font-bold text-white leading-snug">Gaps Flagged</p>
-              <span className="rounded-full bg-red-500/20 px-2 py-0.5 font-mono text-[9px] font-semibold text-red-400">3 found</span>
-            </div>
-            <div className="space-y-2">
+          {/* ── Bottom-left: What we found ───────────────────────────── */}
+          <Card className="absolute bottom-8 -left-4 z-10 p-6" style={{ width: `${WIDE_CARD_W}px` } as React.CSSProperties}>
+            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-4">What we found</p>
+
+            <p className="text-[16px] font-semibold text-white mb-2">Strengths identified</p>
+            <div className="space-y-1.5 mb-5">
               {[
-                'No live demo or deploy link',
-                'Hook fails the 5-second scan',
-                'Tech stack not front-loaded',
-              ].map((gap, i) => (
-                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5">
-                  <span className="mt-0.5 shrink-0 text-[12px] font-bold text-red-400">!</span>
-                  <p className="text-[13px] font-semibold text-white leading-snug">{gap}</p>
+                'Setup takes three commands',
+                'Env vars: required vs optional',
+              ].map((s) => (
+                <div key={s} className="flex items-start gap-2.5">
+                  <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[#8B9DC3]/50 shrink-0" />
+                  <p className="text-[14px] text-[#8B9DC3] leading-snug">{s}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="h-px bg-white/[0.06] mb-5" />
+
+            <p className="text-[16px] font-semibold text-white mb-2">Improvement suggestions</p>
+            <div className="space-y-1.5">
+              {[
+                'No demo link or screenshot',
+                'Opening line reads like docs',
+              ].map((s) => (
+                <div key={s} className="flex items-start gap-2.5">
+                  <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[#8B9DC3]/50 shrink-0" />
+                  <p className="text-[14px] text-[#8B9DC3] leading-snug">{s}</p>
                 </div>
               ))}
             </div>
           </Card>
 
           {/* ── Bottom-right: CTA ───────────────────────────────────── */}
-          <Card className="absolute bottom-8 right-0 z-10 flex flex-col gap-3" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30">Repo Scoring</p>
-            <p className="text-[17px] font-bold text-white leading-snug">
-              Your score in 30 seconds.
+          <Card className="absolute bottom-8 -right-10 z-10 flex flex-col gap-3.5 p-6" style={{ width: `${CTA_CARD_W}px` } as React.CSSProperties}>
+            <p className="text-[19px] font-bold text-white leading-snug">
+              See your full breakdown.
             </p>
-            <p className="text-[12px] text-[#8B9DC3] leading-relaxed">
-              Grounded in what you actually built. No fluff.
+            <p className="text-[13px] text-[#8B9DC3] leading-relaxed">
+              Score, gaps, and resume bullets — 30 seconds.
             </p>
             <a
               href="/#top"
-              className="mt-1 flex items-center justify-center rounded-full bg-[#38D9FF] px-5 py-2.5 text-[13px] font-semibold text-[#07111F] hover:bg-[#5DE4FF] transition-colors"
+              className="mt-1 flex items-center justify-center rounded-full bg-[#38D9FF] px-5 py-3 text-[14px] font-semibold text-[#07111F] hover:bg-[#5DE4FF] transition-colors"
             >
-              Score my repo →
+              See my full breakdown →
             </a>
           </Card>
 
