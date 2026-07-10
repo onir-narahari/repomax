@@ -135,23 +135,15 @@ function LockedBulletRow({ bullet, index }: { bullet: string; index: number }) {
   )
 }
 
-function UnlockOverlay({ count, onUnlock }: { count: number; onUnlock: () => void }) {
+function UnlockOverlay({ onUnlock }: { onUnlock: () => void }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center px-6">
-      <div className="w-full max-w-[280px] rounded-xl border border-[#242B3A] bg-[#0D111C]/96 backdrop-blur-sm px-5 py-5 text-center shadow-2xl">
-        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#7AA7FF]">
-          {count} more bullet{count > 1 ? 's' : ''}
-        </p>
-        <p className="mb-4 text-[14px] font-semibold text-[#F5F3EA]">
-          Create a free account to see {count > 1 ? 'them' : 'it'}
-        </p>
-        <button
-          onClick={onUnlock}
-          className="w-full rounded-lg bg-[#7AA7FF] py-2.5 text-[13px] font-semibold text-[#070A12] transition hover:bg-[#93BBFF]"
-        >
-          Create free account →
-        </button>
-      </div>
+      <button
+        onClick={onUnlock}
+        className="rounded-full bg-[#7AA7FF] px-7 py-3.5 text-[14px] font-semibold text-[#070A12] shadow-2xl shadow-black/50 transition hover:bg-[#93BBFF] hover:scale-[1.03]"
+      >
+        Unlock all bullets →
+      </button>
     </div>
   )
 }
@@ -190,7 +182,7 @@ export default function OutputCard({ content, empty = false, isAuthed = true, on
                 <LockedBulletRow key={i} bullet={bullet} index={i + 1} />
               ))}
             </ul>
-            <UnlockOverlay count={rest.length} onUnlock={handleUnlock} />
+            <UnlockOverlay onUnlock={handleUnlock} />
           </div>
         </>
       ) : (
