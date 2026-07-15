@@ -8,12 +8,13 @@ import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
 import ProfileButton from '@/components/ProfileButton'
 import OutputTabs from '@/components/OutputTabs'
-import type { AnalyzeResponse } from '@/types'
+import { LANGUAGE_COLORS, fmtUpdated } from '@/components/GitHubRepoPicker'
+import type { AnalyzeResponse, GitHubUserRepo } from '@/types'
 import type { User } from '@supabase/supabase-js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type View = 'home' | 'past' | 'detail'
+type View = 'home' | 'past' | 'detail' | 'repos'
 
 interface SavedScore {
   id: string
@@ -32,6 +33,14 @@ const SCAN_FEATURES = [
   'Resume bullets pulled from your actual stack and features',
   'Saved to your workspace so you can rescan as you improve',
 ] as const
+
+function GithubIcon({ className }: { className?: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  )
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,6 +142,8 @@ export default function ProfilePage() {
   const [scores, setScores]     = useState<SavedScore[]>([])
   const [selected, setSelected] = useState<SavedScore | null>(null)
   const [loading, setLoading]   = useState(true)
+  const [githubRepos, setGithubRepos] = useState<GitHubUserRepo[] | null>(null)
+  const [githubReposError, setGithubReposError] = useState('')
 
   const supabase = createClient()
 
@@ -149,12 +160,29 @@ export default function ProfilePage() {
     })
   }, [])
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'repos') setView('repos')
+  }, [])
+
   const username  = user?.user_metadata?.username || user?.email?.split('@')[0] || 'you'
   const initial   = username[0]?.toUpperCase() ?? '?'
   const hasScores = scores.length > 0
+  const githubUsername = user?.app_metadata?.provider === 'github' ? (user.user_metadata?.user_name ?? null) : null
+
+  useEffect(() => {
+    if (!githubUsername) return
+    fetch('/api/github/repos')
+      .then(async (res) => {
+        if (!res.ok) throw new Error()
+        const data = await res.json()
+        setGithubRepos(data.repos as GitHubUserRepo[])
+      })
+      .catch(() => setGithubReposError('Could not load your repos from GitHub.'))
+  }, [githubUsername])
 
   const openDetail = (s: SavedScore) => { setSelected(s); setView('detail') }
   const rescan     = (s: SavedScore) => router.push(`/generate?repo=${encodeURIComponent(s.repo_url)}`)
+  const scanRepo   = (repoUrl: string) => router.push(`/generate?repo=${encodeURIComponent(repoUrl)}`)
 
   const latest = scores[0]
   const gaps   = latest?.result?.repoScore?.weaknesses?.slice(0, 2) ?? []
@@ -179,6 +207,7 @@ export default function ProfilePage() {
           {([
             { id: 'home' as View, label: 'Home',       Icon: Home,  active: view === 'home' },
             { id: 'past' as View, label: 'Past Repos', Icon: Clock, active: view === 'past' || view === 'detail' },
+            ...(githubUsername ? [{ id: 'repos' as View, label: 'My GitHub Repos', Icon: GithubIcon, active: view === 'repos' }] : []),
           ] as const).map(({ id, label, Icon, active }) => (
             <button
               key={id}
@@ -192,6 +221,11 @@ export default function ProfilePage() {
               {label === 'Past Repos' && scores.length > 0 && (
                 <span className="ml-auto rounded-full bg-[#141D2E] px-1.5 py-0.5 text-[10px] tabular-nums text-[#3D4A60]">
                   {scores.length}
+                </span>
+              )}
+              {label === 'My GitHub Repos' && githubRepos !== null && githubRepos.length > 0 && (
+                <span className="ml-auto rounded-full bg-[#141D2E] px-1.5 py-0.5 text-[10px] tabular-nums text-[#3D4A60]">
+                  {githubRepos.length}
                 </span>
               )}
             </button>
@@ -238,36 +272,95 @@ export default function ProfilePage() {
             <div className={`flex min-h-0 flex-1 gap-4 ${!hasScores ? 'max-w-lg' : ''}`}>
 
               {/* ── Scan a new repo ─────────────────────────────────────── */}
-              <Link
-                href="/generate"
-                className="group relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7 transition hover:border-[#22C55E]/45 hover:bg-[#0C1510] sm:p-8"
-              >
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#22C55E]/[0.07] to-transparent" />
+              {githubUsername ? (
+                <div className="flex flex-1 flex-col rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
+                      <Plus className="h-2.5 w-2.5" /> NEW SCAN
+                    </span>
+                    <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 font-mono text-[10px] text-[#7AA7FF]">@{githubUsername}</span>
+                  </div>
 
-                <div className="relative">
-                  <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
-                    <Plus className="h-2.5 w-2.5" /> NEW SCAN
-                  </span>
+                  {githubReposError && <p className="mt-5 text-sm text-red-400">{githubReposError}</p>}
+
+                  {!githubReposError && githubRepos === null && (
+                    <div className="mt-5 space-y-2">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="h-[52px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
+                      ))}
+                    </div>
+                  )}
+
+                  {githubRepos !== null && githubRepos.length === 0 && (
+                    <p className="mt-5 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
+                  )}
+
+                  {githubRepos !== null && githubRepos.length > 0 && (
+                    <div className="mt-5 flex-1 space-y-2">
+                      {githubRepos.slice(0, 3).map((repo) => (
+                        <button
+                          key={repo.name}
+                          type="button"
+                          onClick={() => scanRepo(repo.htmlUrl)}
+                          className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#22C55E]/40"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
+                            <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
+                              {repo.language && (
+                                <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
+                              )}
+                              <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-lg bg-[#22C55E]/15 px-3 py-1.5 text-xs font-semibold text-[#22C55E]">Scan →</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {githubRepos !== null && githubRepos.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setView('repos')}
+                      className="mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[#7AA7FF] hover:text-[#9DBCFF]"
+                    >
+                      View all {githubRepos.length} repos →
+                    </button>
+                  )}
                 </div>
+              ) : (
+                <Link
+                  href="/generate"
+                  className="group relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7 transition hover:border-[#22C55E]/45 hover:bg-[#0C1510] sm:p-8"
+                >
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#22C55E]/[0.07] to-transparent" />
 
-                <ul className="relative mt-5 flex-1 space-y-3.5">
-                  {SCAN_FEATURES.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22C55E]/15">
-                        <Check className="h-3 w-3 text-[#22C55E]" strokeWidth={2.5} />
-                      </span>
-                      <span className="text-sm leading-snug text-[#9AA3B5]">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
+                  <div className="relative">
+                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
+                      <Plus className="h-2.5 w-2.5" /> NEW SCAN
+                    </span>
+                  </div>
 
-                <div className="relative mt-8">
-                  <span className="inline-flex items-center gap-2 rounded-xl bg-[#F5F3EA] px-6 py-3 text-sm font-bold text-[#070A12] transition group-hover:bg-white">
-                    Scan My Repo <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                  </span>
-                  <p className="mt-3 text-xs text-[#3D4A60]">Takes about 30 seconds · no install needed</p>
-                </div>
-              </Link>
+                  <ul className="relative mt-5 flex-1 space-y-3.5">
+                    {SCAN_FEATURES.map((feature) => (
+                      <li key={feature} className="flex items-start gap-3">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22C55E]/15">
+                          <Check className="h-3 w-3 text-[#22C55E]" strokeWidth={2.5} />
+                        </span>
+                        <span className="text-sm leading-snug text-[#9AA3B5]">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="relative mt-8">
+                    <span className="inline-flex items-center gap-2 rounded-xl bg-[#F5F3EA] px-6 py-3 text-sm font-bold text-[#070A12] transition group-hover:bg-white">
+                      Scan My Repo <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                    </span>
+                    <p className="mt-3 text-xs text-[#3D4A60]">Takes about 30 seconds · no install needed</p>
+                  </div>
+                </Link>
+              )}
 
               {/* ── Latest saved repo ───────────────────────────────────── */}
               {hasScores && (
@@ -373,6 +466,60 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {scores.map((s) => (
                     <PastRepoCard key={s.id} s={s} onOpen={() => openDetail(s)} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ MY GITHUB REPOS ═══════════════════════════════════════════════════ */}
+        {view === 'repos' && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-5xl px-6 py-8 sm:px-8 sm:py-10">
+
+              <div className="mb-8 flex items-end justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">My GitHub repos</h1>
+                  <p className="mt-1 text-sm text-[#687386]">
+                    {githubRepos === null
+                      ? 'Loading…'
+                      : `${githubRepos.length} public repo${githubRepos.length === 1 ? '' : 's'} · forks hidden`}
+                  </p>
+                </div>
+                <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-3 py-1.5 font-mono text-xs text-[#7AA7FF]">@{githubUsername}</span>
+              </div>
+
+              {githubReposError && <p className="text-sm text-red-400">{githubReposError}</p>}
+
+              {!githubReposError && githubRepos === null && <PastRepoGridSkeleton />}
+
+              {githubRepos !== null && githubRepos.length === 0 && (
+                <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
+                  <p className="text-sm text-[#9AA3B5]">No public repos found on your GitHub account yet.</p>
+                </div>
+              )}
+
+              {githubRepos !== null && githubRepos.length > 0 && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {githubRepos.map((repo) => (
+                    <button
+                      key={repo.name}
+                      type="button"
+                      onClick={() => scanRepo(repo.htmlUrl)}
+                      className="group flex w-full flex-col rounded-xl border border-[#7AA7FF]/25 bg-[#0D111C] p-5 text-left transition hover:border-[#7AA7FF]/45 hover:bg-[#0F1420]"
+                    >
+                      <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
+                      <p className="mt-2 flex items-center gap-2 text-xs text-[#687386]">
+                        {repo.language && (
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
+                        )}
+                        <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
+                      </p>
+                      <span className="mt-5 inline-flex w-fit items-center gap-1 rounded-lg bg-[#22C55E]/15 px-2.5 py-1 text-[11px] font-semibold text-[#22C55E] transition group-hover:bg-[#22C55E]/25">
+                        Scan →
+                      </span>
+                    </button>
                   ))}
                 </div>
               )}

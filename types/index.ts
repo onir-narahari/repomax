@@ -111,3 +111,11 @@ export type AppState =
   | { status: 'loading' }
   | { status: 'results'; data: AnalyzeResponse }
   | { status: 'error'; code: AppErrorCode }
+
+export interface GitHubUserRepo {
+  name: string
+  htmlUrl: string
+  language: string | null
+  stars: number
+  updatedAt: string
+}

@@ -1,4 +1,4 @@
-import type { RepoContext, StructuredFacts, CategorizedTechStack } from '@/types'
+import type { RepoContext, StructuredFacts, CategorizedTechStack, GitHubUserRepo } from '@/types'
 
 const BASE = 'https://api.github.com'
 
@@ -333,4 +333,30 @@ export async function fetchRepoContext(owner: string, repo: string): Promise<Rep
     architectureSignals,
     structuredFacts,
   }
+}
+
+export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]> {
+  const res = await ghFetch(`/users/${username}/repos?type=owner&sort=updated&per_page=100`)
+  if (res.status === 404) throw new Error('NOT_FOUND')
+  if (res.status === 403) throw new Error('GITHUB_RATE_LIMITED')
+  if (!res.ok) throw new Error('GITHUB_ERROR')
+
+  const data = await res.json()
+  return (data as Array<{
+    name: string
+    html_url: string
+    fork: boolean
+    private: boolean
+    language: string | null
+    stargazers_count: number
+    updated_at: string
+  }>)
+    .filter((r) => !r.fork && !r.private)
+    .map((r) => ({
+      name: r.name,
+      htmlUrl: r.html_url,
+      language: r.language,
+      stars: r.stargazers_count ?? 0,
+      updatedAt: r.updated_at,
+    }))
 }

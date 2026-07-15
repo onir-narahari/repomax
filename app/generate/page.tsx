@@ -3,7 +3,7 @@
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import Wordmark from '@/components/Wordmark'
 import GenerateBackground from '@/components/GenerateBackground'
@@ -11,6 +11,7 @@ import OutputTabs from '@/components/OutputTabs'
 import ErrorBanner from '@/components/ErrorBanner'
 import AuthModal from '@/components/AuthModal'
 import ProfileButton from '@/components/ProfileButton'
+import GitHubRepoPicker from '@/components/GitHubRepoPicker'
 import type { SaveStatus } from '@/components/RepoScoreCard'
 import { createClient } from '@/lib/supabase'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
@@ -34,6 +35,29 @@ const LOADING_LABELS = [
   'Finalizing results…',
 ]
 
+// ─── Scan cache ──────────────────────────────────────────────────────────────
+// Survives the full-page redirect that OAuth sign-in causes (React state does not),
+// so unlocking bullets via Google/GitHub doesn't re-run the whole analysis.
+
+const SCAN_CACHE_KEY = 'repomax:lastScan'
+
+function readScanCache(repoUrl: string): AnalyzeResponse | null {
+  try {
+    const raw = sessionStorage.getItem(SCAN_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { repoUrl: string; data: AnalyzeResponse }
+    return parsed.repoUrl === repoUrl ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+function writeScanCache(repoUrl: string, data: AnalyzeResponse) {
+  try {
+    sessionStorage.setItem(SCAN_CACHE_KEY, JSON.stringify({ repoUrl, data }))
+  } catch {}
+}
+
 // ─── Loading label ─────────────────────────────────────────────────────────────
 
 function LoadingLabel() {
@@ -52,6 +76,7 @@ function LoadingLabel() {
 // ─── Main page content ─────────────────────────────────────────────────────────
 
 function GeneratePageContent() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const autoSubmitted = useRef(false)
   const [launchedFromQuery, setLaunchedFromQuery] = useState(false)
@@ -63,17 +88,27 @@ function GeneratePageContent() {
   const [hasScoredOnce, setHasScoredOnce] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [isAuthed, setIsAuthed] = useState(false)
+  const [githubUsername, setGithubUsername] = useState<string | null>(null)
+  const [entryMode, setEntryMode] = useState<'url' | 'github'>('url')
+  const [githubConnectLoading, setGithubConnectLoading] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const pendingActionRef = useRef<(() => void | Promise<void>) | null>(null)
 
   const supabase = createClient()
 
+  const deriveGithubUsername = (session: { user: { app_metadata?: { provider?: string }; user_metadata?: { user_name?: string } } } | null) => {
+    if (session?.user.app_metadata?.provider !== 'github') return null
+    return session.user.user_metadata?.user_name ?? null
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setIsAuthed(!!data.session)
+      setGithubUsername(deriveGithubUsername(data.session))
     })
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setIsAuthed(!!session)
+      setGithubUsername(deriveGithubUsername(session))
       if (event === 'SIGNED_IN' && session) {
         const { created_at, last_sign_in_at } = session.user
         const isNewAccount =
@@ -183,6 +218,7 @@ function GeneratePageContent() {
       setState({ status: 'results', data: data as AnalyzeResponse })
       setHasScoredOnce(true)
       setUrlValue('')
+      writeScanCache(normalized, data as AnalyzeResponse)
       await refreshSaveStatus(normalized, (data as AnalyzeResponse).repoScore?.total ?? null)
     } catch (err) {
       posthog.captureException(err)
@@ -204,6 +240,17 @@ function GeneratePageContent() {
     }
     setUrlValue(normalized)
     setLaunchedFromQuery(true)
+
+    const cached = readScanCache(normalized)
+    if (cached) {
+      setSubmittedUrl(normalized)
+      setState({ status: 'results', data: cached })
+      setHasScoredOnce(true)
+      setUrlValue('')
+      void refreshSaveStatus(normalized, cached.repoScore?.total ?? null)
+      return
+    }
+
     void submitUrl(normalized)
   }, [searchParams])
 
@@ -223,6 +270,25 @@ function GeneratePageContent() {
     await submitUrl(normalized)
   }
 
+  const handlePickRepo = (repoUrl: string) => {
+    setUrlValue('')
+    setValidationError('')
+    void submitUrl(normalizeRepoUrl(repoUrl))
+  }
+
+  const handleGithubConnect = async () => {
+    setGithubConnectLoading(true)
+    posthog.capture('generate_github_connect_clicked')
+    const redirectTo = submittedUrl
+      ? `${window.location.origin}${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
+      : window.location.href
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo },
+    })
+    if (error) setGithubConnectLoading(false)
+  }
+
   const handleAuthSuccess = async () => {
     setShowAuthModal(false)
     const action = pendingActionRef.current
@@ -239,6 +305,7 @@ function GeneratePageContent() {
   const homeHref = isAuthed ? '/profile' : '/'
 
   const repoInput = (compact: boolean) => (
+    <>
     <form
       onSubmit={handleFormSubmit}
       className={compact ? '' : 'mt-7 sm:mt-8'}
@@ -298,6 +365,17 @@ function GeneratePageContent() {
         <p role="alert" className="mt-2.5 text-xs text-red-400">{validationError}</p>
       )}
     </form>
+    {compact && !isAuthed && (
+      <button
+        type="button"
+        onClick={() => void handleGithubConnect()}
+        disabled={githubConnectLoading}
+        className="mt-2 text-xs font-medium text-[#7AA7FF] transition hover:text-[#9DBCFF] disabled:opacity-60"
+      >
+        {githubConnectLoading ? 'Redirecting…' : 'or Connect GitHub to pick from your repos →'}
+      </button>
+    )}
+    </>
   )
 
   return (
@@ -308,6 +386,11 @@ function GeneratePageContent() {
         <AuthModal
           onClose={() => setShowAuthModal(false)}
           onSuccess={handleAuthSuccess}
+          redirectPath={
+            submittedUrl
+              ? `${window.location.origin}${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
+              : undefined
+          }
         />
       )}
 
@@ -342,13 +425,62 @@ function GeneratePageContent() {
             {!launchedFromQuery && (
               <div className="mb-6 text-center">
                 <h1 className="text-2xl font-bold tracking-[-0.025em] text-[#F5F3EA] sm:text-3xl">
-                  Paste your GitHub URL.{' '}
-                  <span className="text-[#7AA7FF]">Get your Repo Score.</span>
+                  {githubUsername ? (
+                    <>Pick a repo. <span className="text-[#7AA7FF]">Get your Repo Score.</span></>
+                  ) : (
+                    <>Paste your GitHub URL. <span className="text-[#7AA7FF]">Get your Repo Score.</span></>
+                  )}
                 </h1>
               </div>
             )}
             {isLoading && <LoadingLabel />}
-            {(!launchedFromQuery || state.status === 'error') && repoInput(false)}
+            {(!launchedFromQuery || state.status === 'error') && (
+              githubUsername ? (
+                <GitHubRepoPicker username={githubUsername} onSelectRepo={handlePickRepo} />
+              ) : isAuthed ? (
+                repoInput(false)
+              ) : (
+                <div className="mx-auto w-full max-w-xl">
+                  <div className="flex rounded-full border border-[#242B3A] bg-[#111827] p-1">
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('url')}
+                      className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
+                        entryMode === 'url' ? 'bg-[#F5F3EA] text-[#070A12]' : 'text-[#687386] hover:text-[#9AA3B5]'
+                      }`}
+                    >
+                      Paste a link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('github')}
+                      className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${
+                        entryMode === 'github' ? 'bg-[#F5F3EA] text-[#070A12]' : 'text-[#687386] hover:text-[#9AA3B5]'
+                      }`}
+                    >
+                      Connect GitHub
+                    </button>
+                  </div>
+                  <div className="mt-4">
+                    {entryMode === 'url' ? (
+                      repoInput(false)
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <button
+                          type="button"
+                          onClick={() => void handleGithubConnect()}
+                          disabled={githubConnectLoading}
+                          className="inline-flex items-center gap-2 rounded-xl bg-[#F5F3EA] px-7 py-3.5 text-sm font-semibold text-[#070A12] transition hover:bg-[#E7E2D7] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {githubConnectLoading ? 'Redirecting…' : 'Continue with GitHub'}
+                        </button>
+                        <p className="mt-3 text-xs text-[#687386]">We'll show your public repos so you can pick one to score.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
           </section>
         )}
 
@@ -362,7 +494,22 @@ function GeneratePageContent() {
         {/* Compact input after first score */}
         {showCompactInput && (
           <section className="mb-5 anim-in" style={{ animationDelay: '80ms' }}>
-            {repoInput(true)}
+            {githubUsername ? (
+              <div className="flex items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#0D111C] px-4 py-3">
+                <p className="font-mono text-sm text-[#F5F3EA]">
+                  {submittedUrl.replace('https://github.com/', '')} <span className="font-sans text-xs text-[#687386]">· scored</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/profile?view=repos')}
+                  className="flex items-center gap-1.5 rounded-lg border border-[#242B3A] bg-[#111827] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA]"
+                >
+                  Pick another repo →
+                </button>
+              </div>
+            ) : (
+              repoInput(true)
+            )}
           </section>
         )}
 
