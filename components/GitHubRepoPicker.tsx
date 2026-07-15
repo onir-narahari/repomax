@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { GitHubUserRepo } from '@/types'
 
 interface Props {
@@ -37,9 +38,9 @@ export function fmtUpdated(iso: string) {
 const VISIBLE_CAP = 3
 
 export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
+  const router = useRouter()
   const [repos, setRepos] = useState<GitHubUserRepo[] | null>(null)
   const [error, setError] = useState('')
-  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -78,7 +79,7 @@ export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
 
       {repos !== null && repos.length > 0 && (
         <div className="mt-4 space-y-2">
-          {(expanded ? repos : repos.slice(0, VISIBLE_CAP)).map((repo) => (
+          {repos.slice(0, VISIBLE_CAP).map((repo) => (
             <button
               key={repo.name}
               type="button"
@@ -100,13 +101,13 @@ export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
         </div>
       )}
 
-      {repos !== null && repos.length > VISIBLE_CAP && !expanded && (
+      {repos !== null && repos.length > VISIBLE_CAP && (
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={() => router.push('/profile?view=repos')}
           className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#1E2A3D] py-2 text-xs font-medium text-[#7AA7FF] transition hover:border-[#334155]"
         >
-          View {repos.length - VISIBLE_CAP} more repos <span className="text-[10px]">▾</span>
+          View {repos.length - VISIBLE_CAP} more repos
         </button>
       )}
 
