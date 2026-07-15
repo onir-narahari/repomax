@@ -49,7 +49,7 @@ const GENERIC_PHRASES = [
   'tech stack',
 ]
 
-const resumeBulletSchema = z
+const resumeBulletStringSchema = z
   .string()
   .min(80)
   .refine(
@@ -63,10 +63,32 @@ const resumeBulletSchema = z
     }
   )
 
+export const BulletEvidenceSchema = z.object({
+  label: z.string().min(1),
+  type: z.enum(['file', 'dependency', 'commit']),
+})
+
+export const ResumeBulletWithEvidenceSchema = z.object({
+  bullet: resumeBulletStringSchema,
+  evidence: z.array(BulletEvidenceSchema).max(6).default([]),
+})
+
+export const ResumeBulletSchema = z
+  .union([
+    ResumeBulletWithEvidenceSchema,
+    resumeBulletStringSchema.transform((s) => ({
+      bullet: s,
+      evidence: [] as z.infer<typeof BulletEvidenceSchema>[],
+    })),
+  ])
+
 export const AnalyzeResponseSchema = z.object({
-  resumeBullets: z.array(resumeBulletSchema).min(3).max(4),
+  resumeBullets: z.array(ResumeBulletSchema).min(3).max(4),
   warnings: z.array(z.string()).optional().default([]),
   repoScore: RepoScoreSchema.optional(),
 })
 
 export type AnalyzeResponseOutput = z.infer<typeof AnalyzeResponseSchema>
+export type BulletEvidenceOutput = z.infer<typeof BulletEvidenceSchema>
+export type ResumeBulletOutput = z.infer<typeof ResumeBulletSchema>
+

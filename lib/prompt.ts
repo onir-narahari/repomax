@@ -1,7 +1,7 @@
 import OpenAI, { APIConnectionTimeoutError } from 'openai'
-import type { RepoContext, RepoScore } from '@/types'
+import type { RepoContext, RepoScore, ResumeBulletWithEvidence, BulletEvidence } from '@/types'
 import { normalizeRepoScore, filterRepoAdvice, readmeClaimsShippedProduct } from './repo-score'
-import { AnalyzeResponseSchema, RepoScoreSchema, type AnalyzeResponseOutput } from './schema'
+import { AnalyzeResponseSchema, type AnalyzeResponseOutput, RepoScoreSchema } from './schema'
 
 let _client: OpenAI | null = null
 function getClient() {
@@ -9,7 +9,7 @@ function getClient() {
   return _client
 }
 
-// ─── Resume bullet generation prompt ─────────────────────────────────────────
+// --- Resume bullet generation prompt ---
 
 export const SYSTEM_PROMPT = `You are a senior technical resume writer and SWE/AI recruiter.
 
@@ -35,29 +35,29 @@ Weak signals to avoid unless there is nothing stronger:
 * generic WebSocket or API usage with no technical depth
 * simple framework usage
 * internal labels that sound small
-* vague “full-stack” claims
-* generic “AI-powered” descriptions
+* vague full-stack claims
+* generic AI-powered descriptions
 * feature lists with no engineering depth
 * metrics that are not clearly tied to the feature
 
 Bullet structure:
 
-Bullet 1 — Overall project:
-State what was built, the main stack, and the 2–3 strongest capabilities. This should make the project instantly understandable and impressive. No metric unless it naturally describes project scale.
+Bullet 1 - Overall project:
+State what was built, the main stack, and the 2-3 strongest capabilities. This should make the project instantly understandable and impressive. No metric unless it naturally describes project scale.
 
-Bullet 2 — Best technical proof:
+Bullet 2 - Best technical proof:
 Pick the strongest technical implementation from the README. Lead with what was built and how it works. If a supported metric directly proves this work, include it.
 
-Bullet 3 — Second-best technical proof:
+Bullet 3 - Second-best technical proof:
 Pick the next strongest technical implementation, optimization, architecture decision, calculation method, pipeline, validation logic, or domain-specific feature. If a supported metric directly proves this work, include it.
 
 Metric rules:
 Metrics strengthen bullets, but they do not replace technical substance.
 Attach metrics only to the feature or implementation they actually support.
-If a metric’s cause is unclear, use it in a broader optimization bullet instead of forcing it onto the wrong feature.
+If a metric's cause is unclear, use it in a broader optimization bullet instead of forcing it onto the wrong feature.
 Do not dump unrelated metrics into one bullet.
 Do not ignore a strong metric when it clearly supports one of the selected technical proofs.
-Never invent, infer, estimate, calculate, or “make reasonable” metrics.
+Never invent, infer, estimate, calculate, or make reasonable metrics.
 
 Writing rules:
 
@@ -72,11 +72,20 @@ Writing rules:
 
 Avoid:
 
-* “efficient,” “robust,” “scalable,” “advanced,” “significantly,” “capable of,” “featuring,” “enhancing,” “improving,” or “ensuring”
-* “AI-powered,” “leveraged,” “utilized,” or “cutting-edge”
-* vague endings like “improving performance,” “enhancing efficiency,” or “enhancing visualization”
+* efficient, robust, scalable, advanced, significantly, capable of, featuring, enhancing, improving, or ensuring
+* AI-powered, leveraged, utilized, or cutting-edge
+* vague endings like improving performance, enhancing efficiency, or enhancing visualization
 * title casing project names unless it is the official repo/product name
 * weak metric pairings, such as attaching backend latency to UI/WebSocket work unless the README explicitly says that metric measures that path
+
+Evidence mapping rules:
+For each bullet you write, identify up to 4 concrete evidence items that prove the bullet is grounded in the real repo.
+Pull ONLY from the file tree paths, dependency names, and recent commit messages provided in the user message.
+Do not cite files or packages that are not in those lists.
+- type "file"        -- a file or directory path from the provided file tree (e.g. "auth/middleware.ts")
+- type "dependency"  -- a package name from the dependencies list (e.g. "jsonwebtoken")
+- type "commit"      -- a short keyword from a recent commit message (e.g. "add JWT refresh flow")
+Keep each label short: max 40 chars, no surrounding quotes around file paths.
 
 Before outputting, silently check:
 
@@ -86,12 +95,13 @@ Before outputting, silently check:
 4. Is every metric attached to the correct feature?
 5. Did I remove filler and weak wording?
 6. Would these bullets look strong on a real internship resume?
+7. Is every evidence item actually present in the file tree, dependencies, or commits supplied?
 
-Return only the final 3 bullets.
+Return only the final 3 bullets via generate_bullets.
 
 `
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// --- Helpers ---
 
 const README_CHAR_LIMIT = 12000
 
@@ -115,21 +125,35 @@ function buildBulletMessage(ctx: RepoContext, targetRole?: string): string {
     parts.push(`Dependencies: ${ctx.dependencies.join(', ')}`)
   }
 
+  // Surface the file tree so the LLM can cite concrete file paths as evidence.
+  // Capped at 20 entries -- no extra GitHub calls, already in RepoContext.
+  const treeForEvidence = ctx.fileTree.slice(0, 20)
+  if (treeForEvidence.length > 0) {
+    parts.push(`File tree (for evidence only -- do not describe):\n${treeForEvidence.join('\n')}`)
+  }
+
+  // Surface recent commits so the LLM can cite commit messages as evidence.
+  // Capped at 8 messages -- already in RepoContext.
+  const commitsForEvidence = ctx.recentCommits.slice(0, 8)
+  if (commitsForEvidence.length > 0) {
+    parts.push(`Recent commits (for evidence only):\n${commitsForEvidence.join('\n')}`)
+  }
+
   const readmeText = truncateReadme(ctx.readme)
 
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
-  parts.push(`\nRead the full README. Write 3 bullets — bullets 2 and 3 use the same rules: strongest technical proof + README metric when it belongs to that work. Call generate_bullets.`)
+  parts.push(`\nRead the full README. Write 3 bullets -- bullets 2 and 3 use the same rules: strongest technical proof + README metric when it belongs to that work. For each bullet cite up to 4 evidence items from the file tree, dependencies, and commits provided above. Call generate_bullets.`)
 
   return parts.join('\n')
 }
 
-// ─── Bullet generation ────────────────────────────────────────────────────────
+// --- Bullet generation ---
 
 const BULLETS_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'generate_bullets',
-    description: "Generate Jake's Resume-style project bullets for a GitHub repository",
+    description: "Generate Jake's Resume-style project bullets with evidence for a GitHub repository",
     parameters: {
       type: 'object',
       required: ['projectName', 'detectedTechStack', 'metricsFound', 'featuresFound', 'resumeBullets'],
@@ -146,23 +170,62 @@ const BULLETS_TOOL: OpenAI.Chat.ChatCompletionTool = {
         metricsFound: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional scratch notes — metrics explicitly stated in the README. Empty array if none.',
+          description: 'Optional scratch notes -- metrics explicitly stated in the README. Empty array if none.',
         },
         featuresFound: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional scratch notes — key features noticed while reading the README.',
+          description: 'Optional scratch notes -- key features noticed while reading the README.',
         },
         resumeBullets: {
           type: 'array',
-          items: { type: 'string' },
+          description: 'Exactly 3 bullets with evidence. Each item has a bullet string and up to 4 evidence items.',
           minItems: 3,
           maxItems: 3,
-          description: 'Exactly 3 bullets. Bullets 2–3: strongest technical proof each; include a README metric only when it clearly belongs to that work.',
+          items: {
+            type: 'object',
+            required: ['bullet', 'evidence'],
+            properties: {
+              bullet: {
+                type: 'string',
+                description: 'One resume bullet sentence. Bullets 2-3: strongest technical proof each; include a README metric only when it clearly belongs to that work.',
+              },
+              evidence: {
+                type: 'array',
+                maxItems: 4,
+                description: 'Up to 4 evidence items from the file tree, dependencies list, or recent commits that verify this bullet. Only cite items actually present in the provided lists.',
+                items: {
+                  type: 'object',
+                  required: ['label', 'type'],
+                  properties: {
+                    label: {
+                      type: 'string',
+                      description: 'Short human-readable label (max 40 chars). File path, package name, or commit keyword.',
+                    },
+                    type: {
+                      type: 'string',
+                      enum: ['file', 'dependency', 'commit'],
+                      description: '"file" for file tree paths, "dependency" for package names, "commit" for commit message keywords.',
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
   },
+}
+
+type RawEvidenceItem = {
+  label: string
+  type: 'file' | 'dependency' | 'commit'
+}
+
+type RawBulletItem = {
+  bullet: string
+  evidence?: RawEvidenceItem[]
 }
 
 type BulletsResult = {
@@ -170,7 +233,27 @@ type BulletsResult = {
   detectedTechStack: string[]
   metricsFound: string[]
   featuresFound: string[]
-  resumeBullets: string[]
+  /**
+   * Each item is { bullet: string, evidence: [...] }.
+   * We also accept a plain string for robustness in case the model
+   * sends the old shape (e.g. during a canary rollout).
+   */
+  resumeBullets: (RawBulletItem | string)[]
+}
+
+/** Normalise a raw bullet item (new or legacy string) into ResumeBulletWithEvidence */
+function normaliseBulletItem(raw: RawBulletItem | string): ResumeBulletWithEvidence {
+  if (typeof raw === 'string') {
+    return { bullet: raw, evidence: [] }
+  }
+  const evidence: BulletEvidence[] = (raw.evidence ?? [])
+    .filter((e) => e && typeof e.label === 'string' && e.label.length > 0)
+    .slice(0, 4)
+    .map((e) => ({
+      label: e.label.slice(0, 40),
+      type: (['file', 'dependency', 'commit'].includes(e.type) ? e.type : 'file') as BulletEvidence['type'],
+    }))
+  return { bullet: raw.bullet, evidence }
 }
 
 async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
@@ -179,7 +262,8 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
     response = await getClient().chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.5,
-      max_tokens: 1200,
+      // Raised from 1200 to accommodate evidence arrays per bullet
+      max_tokens: 1600,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: bulletMsg },
@@ -195,7 +279,7 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
   const choice = response.choices[0]
   const toolCall = choice?.message?.tool_calls?.[0]
   if (!toolCall || toolCall.type !== 'function') {
-    console.error('[RepoMax] Bullet gen — no tool call. finish_reason:', choice?.finish_reason, 'content:', choice?.message?.content)
+    console.error('[RepoMax] Bullet gen -- no tool call. finish_reason:', choice?.finish_reason, 'content:', choice?.message?.content)
     throw new Error('LLM_PARSE_ERROR')
   }
 
@@ -203,65 +287,65 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
   try {
     result = JSON.parse(toolCall.function.arguments) as BulletsResult
   } catch {
-    console.error('[RepoMax] Bullet gen — JSON parse failed:', toolCall.function.arguments)
+    console.error('[RepoMax] Bullet gen -- JSON parse failed:', toolCall.function.arguments)
     throw new Error('LLM_PARSE_ERROR')
   }
 
   if (!Array.isArray(result.resumeBullets) || result.resumeBullets.length < 3) {
-    console.error('[RepoMax] Bullet gen — too few bullets:', result.resumeBullets?.length, result.resumeBullets)
+    console.error('[RepoMax] Bullet gen -- too few bullets:', result.resumeBullets?.length, result.resumeBullets)
     throw new Error('LLM_PARSE_ERROR')
   }
   return result
 }
 
 
-// ─── Repo scoring ─────────────────────────────────────────────────────────────
+// --- Repo scoring ---
 
 const SCORE_SYSTEM_PROMPT = `You are a senior software engineer auditing a GitHub repository for quality.
 
-Most repos you score are portfolio or learning projects built to show technical depth — not production SaaS with users. Score the repo itself: clarity, engineering depth, completeness, docs, and quality signals. This is NOT a resume-writing review.
+Most repos you score are portfolio or learning projects built to show technical depth -- not production SaaS with users. Score the repo itself: clarity, engineering depth, completeness, docs, and quality signals. This is NOT a resume-writing review.
 
 Score this repo across 6 categories. Each category has a max score listed below.
 
 CATEGORIES (total max = 100):
-1. first_impression_clarity — max 15
+1. first_impression_clarity -- max 15
    Does the README immediately explain what the project does, who it's for, and what problem it solves?
-   10–15: clear project summary, audience, and purpose in first scroll
-   5–9: partially explains the project but requires reading to understand
-   0–4: confusing, empty, or generic README opener
+   10-15: clear project summary, audience, and purpose in first scroll
+   5-9: partially explains the project but requires reading to understand
+   0-4: confusing, empty, or generic README opener
 
-2. runnable_setup_dx — max 15
+2. runnable_setup_dx -- max 15
    Can a developer clone and run this project without guessing? Are setup instructions present and complete?
-   10–15: clear install + run steps, environment setup, prerequisites
-   5–9: partial setup instructions, missing steps or env config
-   0–4: no setup instructions or clearly broken/missing instructions
+   10-15: clear install + run steps, environment setup, prerequisites
+   5-9: partial setup instructions, missing steps or env config
+   0-4: no setup instructions or clearly broken/missing instructions
 
-3. technical_depth_system_design — max 25  ← most important
+3. technical_depth_system_design -- max 25  <- most important
    Does the code show meaningful engineering work beyond basic CRUD or tutorial-following?
-   20–25: real system design, non-trivial architecture, interesting algorithms, simulators, engines, API/backend design, ML pipeline, or domain logic
-   10–19: shows some technical effort but is mostly standard framework usage
-   0–9: basic CRUD, tutorial clone, or no discernible engineering depth
+   20-25: real system design, non-trivial architecture, interesting algorithms, simulators, engines, API/backend design, ML pipeline, or domain logic
+   10-19: shows some technical effort but is mostly standard framework usage
+   0-9: basic CRUD, tutorial clone, or no discernible engineering depth
    Give full credit when a repo clearly demonstrates deep implementation even if it has no users or deployment.
 
-4. proof_of_shipping — max 15
+4. proof_of_shipping -- max 15
    Does the repo show the project was actually built and works? This is NOT about production deployment.
-   10–15: runnable demo instructions, sample output, benchmark scripts, meaningful commit history, or a clearly finished build
-   5–9: project looks complete but proof is thin (no outputs shown, sparse commits)
-   0–4: looks abandoned, empty, or clearly unfinished
+   10-15: runnable demo instructions, sample output, benchmark scripts, meaningful commit history, or a clearly finished build
+   5-9: project looks complete but proof is thin (no outputs shown, sparse commits)
+   0-4: looks abandoned, empty, or clearly unfinished
    Prefer suggesting sample output, run instructions, or benchmark scripts over screenshots or GIFs. Do NOT require a live deployed URL.
 
-5. testing_reliability_quality (Quality signals) — max 15
-   Quality signals visible in the repo. Missing CI is normal for portfolio projects — never suggest "integrate CI" or "add GitHub Actions" as a default fix.
-   10–15: meaningful test files, benchmark scripts, lint/type config, or other evidence of careful engineering
-   5–9: minimal tests or partial quality tooling; still shows some engineering discipline
-   0–4: no quality signals AND messy structure suggesting rushed or careless work
+5. testing_reliability_quality (Quality signals) -- max 15
+   Quality signals visible in the repo. Missing CI is normal for portfolio projects -- never suggest integrate CI or add GitHub Actions as a default fix.
+   10-15: meaningful test files, benchmark scripts, lint/type config, or other evidence of careful engineering
+   5-9: minimal tests or partial quality tooling; still shows some engineering discipline
+   0-4: no quality signals AND messy structure suggesting rushed or careless work
    Absence of CI alone should not push this below 5 if technical depth and docs are strong.
 
-6. documentation_depth — max 15
+6. documentation_depth -- max 15
    Beyond the README opener, is the project well documented? Architecture notes, API docs, design decisions, inline comments for non-obvious logic?
-   11–15: architecture explanation, API reference, design notes, or well-commented non-obvious code
-   6–10: minimal docs beyond README, or README is the only documentation
-   0–5: essentially undocumented
+   11-15: architecture explanation, API reference, design notes, or well-commented non-obvious code
+   6-10: minimal docs beyond README, or README is the only documentation
+   0-5: essentially undocumented
 
 SCORING RULES:
 - Score only what is visible in the README, file tree, dependencies, and commit messages provided.
@@ -269,12 +353,12 @@ SCORING RULES:
 - Do NOT assume deployment unless you see a live link, Dockerfile/CI deploy config, or explicit mention.
 - Do NOT assume production usage, users, or metrics unless explicitly stated.
 - Do NOT penalize portfolio repos for lacking production deployment, live demos, user counts, or CI unless the README claims the product is live/shipped.
-- Do NOT score or comment on "resume extractability", "recruiter readiness", or whether the README contains resume bullets. That is out of scope.
-- A strong technical portfolio repo with clear README, runnable setup, and deep implementation can legitimately score 78–88 even without deployment or CI.
+- Do NOT score or comment on resume extractability, recruiter readiness, or whether the README contains resume bullets. That is out of scope.
+- A strong technical portfolio repo with clear README, runnable setup, and deep implementation can legitimately score 78-88 even without deployment or CI.
 - If something is completely absent, say "Not visible in repo" in the reason.
 - Each category score MUST be an integer from 0 up to that category's max (never above max).
 - total = sum of all 6 category scores exactly (max 100).
-- label: 90–100 = "Recruiter-Ready", 80–89 = "Strong Signal", 70–79 = "Needs Polish", 60–69 = "Weak Signal", below 60 = "Not Ready Yet"
+- label: 90-100 = "Recruiter-Ready", 80-89 = "Strong Signal", 70-79 = "Needs Polish", 60-69 = "Weak Signal", below 60 = "Not Ready Yet"
 - summary: one honest sentence about the repo's biggest engineering strength and biggest repo-quality gap.
 - strengths: exactly 3, each grounded in specific repo evidence. Prioritize engineering depth, architecture, and implementation quality.
 - weaknesses: exactly 3, each a real gap in the repo itself (clarity, structure, docs, completeness, code organization, missing examples/tests). NEVER suggest adding resume bullets, a "resume section", or recruiter-facing copy to the README.
@@ -291,7 +375,7 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
       type: 'object',
       required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes'],
       properties: {
-        total: { type: 'number', description: 'Sum of all 6 category scores (0–100).' },
+        total: { type: 'number', description: 'Sum of all 6 category scores (0-100).' },
         label: { type: 'string', description: 'One of: Recruiter-Ready, Strong Signal, Needs Polish, Weak Signal, Not Ready Yet' },
         summary: { type: 'string', description: 'One sentence: biggest strength + biggest gap.' },
         categories: {
@@ -397,7 +481,7 @@ function buildScoreMessage(ctx: RepoContext): string {
   parts.push(`Forks: ${ctx.forksCount}`)
   const readmeText = truncateReadme(ctx.readme)
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
-  parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only — not resume extractability. Call generate_score.`)
+  parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only -- not resume extractability. Call generate_score.`)
   return parts.join('\n')
 }
 
@@ -436,7 +520,7 @@ async function generateScore(ctx: RepoContext): Promise<RepoScore | undefined> {
   }
 }
 
-// ─── Main entry point ─────────────────────────────────────────────────────────
+// --- Main entry point ---
 
 export async function generateContent(
   ctx: RepoContext,
@@ -450,21 +534,26 @@ export async function generateContent(
     generateScore(ctx),
   ])
 
+  // Normalise raw bullet items (new {bullet, evidence} shape or legacy strings) into ResumeBulletWithEvidence
+  const normalisedBullets: ResumeBulletWithEvidence[] = bulletsResult.resumeBullets
+    .slice(0, 4)
+    .map(normaliseBulletItem)
+
   const parsed = AnalyzeResponseSchema.safeParse({
-    resumeBullets: bulletsResult.resumeBullets,
+    resumeBullets: normalisedBullets,
     warnings: [],
     repoScore,
   })
 
   const resumeBullets = parsed.success
     ? parsed.data.resumeBullets
-    : bulletsResult.resumeBullets.slice(0, 3)
+    : normalisedBullets.slice(0, 3)
 
   const allWarnings = [...new Set([...ctx.warnings])]
   return { resumeBullets, warnings: allWarnings, repoScore }
 }
 
-// ─── Exported helpers (used by tests / external callers) ─────────────────────
+// --- Exported helpers (used by tests / external callers) ---
 
 export function buildUserMessage(ctx: RepoContext, targetRole?: string): string {
   return buildBulletMessage(ctx, targetRole)

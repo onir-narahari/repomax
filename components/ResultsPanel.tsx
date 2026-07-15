@@ -37,7 +37,9 @@ export default function ResultsPanel({ data, onReset }: Props) {
         title="Resume Bullets"
         helperText="Paste directly into your resume. Each bullet starts with a strong action verb."
         badge="×3"
-        content={data.resumeBullets}
+        content={data.resumeBullets.map((b) =>
+          typeof b === 'string' ? b : b.bullet
+        )}
       />
       <button
         onClick={onReset}
