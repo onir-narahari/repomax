@@ -65,8 +65,18 @@ export interface RepoScore {
   fixes: string[]
 }
 
+export interface BulletEvidence {
+  label: string
+  type: 'file' | 'dependency' | 'commit'
+}
+
+export interface ResumeBulletWithEvidence {
+  bullet: string
+  evidence: BulletEvidence[]
+}
+
 export interface AnalyzeResponse {
-  resumeBullets: [string, string, string]
+  resumeBullets: (string | ResumeBulletWithEvidence)[]
   warnings: string[]
   repoScore?: RepoScore
 }
