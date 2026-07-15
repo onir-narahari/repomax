@@ -55,6 +55,18 @@ export interface RepoScoreCategories {
   documentation_depth: CategoryScore
 }
 
+export interface ProofClaim {
+  claim: string
+  status: 'found' | 'missing'
+  evidence: string
+  interviewNote: string
+}
+
+export interface MissingProofDetection {
+  claims: ProofClaim[]
+  readinessNote: string
+}
+
 export interface RepoScore {
   total: number
   label: string
@@ -63,6 +75,7 @@ export interface RepoScore {
   strengths: string[]
   weaknesses: string[]
   fixes: string[]
+  missingProof?: MissingProofDetection
 }
 
 export interface AnalyzeResponse {

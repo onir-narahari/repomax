@@ -63,10 +63,29 @@ const resumeBulletSchema = z
     }
   )
 
+export const ProofClaimSchema = z.object({
+  claim: z.string().min(1),
+  status: z.enum(['found', 'missing']),
+  evidence: z.string().min(1),
+  interviewNote: z.string().min(1),
+})
+
+export const MissingProofDetectionSchema = z.object({
+  claims: z.array(ProofClaimSchema).min(1).max(8),
+  readinessNote: z.string().min(1),
+})
+
+export const RepoScoreWithProofSchema = RepoScoreSchema.extend({
+  missingProof: MissingProofDetectionSchema.optional(),
+})
+
 export const AnalyzeResponseSchema = z.object({
   resumeBullets: z.array(resumeBulletSchema).min(3).max(4),
   warnings: z.array(z.string()).optional().default([]),
-  repoScore: RepoScoreSchema.optional(),
+  repoScore: RepoScoreWithProofSchema.optional(),
 })
 
 export type AnalyzeResponseOutput = z.infer<typeof AnalyzeResponseSchema>
+export type ProofClaimOutput = z.infer<typeof ProofClaimSchema>
+export type MissingProofDetectionOutput = z.infer<typeof MissingProofDetectionSchema>
+

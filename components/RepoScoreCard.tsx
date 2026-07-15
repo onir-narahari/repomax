@@ -3,7 +3,7 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 import { Bookmark, Check, ChevronDown } from 'lucide-react'
-import type { RepoScore, CategoryScore } from '@/types'
+import type { RepoScore, CategoryScore, MissingProofDetection, ProofClaim } from '@/types'
 
 export type SaveStatus = 'idle' | 'checking' | 'unsaved' | 'saving' | 'saved'
 
@@ -123,6 +123,79 @@ function CategoryRow({ label, fullLabel, cat }: { label: string; fullLabel: stri
     </div>
   )
 }
+
+// ─── Claims vs. Evidence ─────────────────────────────────────────────────────
+// Rendered at the bottom of the card when missingProof data is present.
+// Uses the same card shell tokens (border-[#242B3A], px-6, py-5, etc.) so the
+// visual language is fully consistent with the rest of RepoScoreCard.
+
+function ClaimRow({ claim }: { claim: ProofClaim }) {
+  const isFound = claim.status === 'found'
+  return (
+    <div className="rounded-xl bg-[#111827]/60 px-4 py-3">
+      <div className="flex items-start gap-2.5">
+        <span
+          className={`mt-0.5 shrink-0 font-mono text-xs font-semibold leading-none ${
+            isFound ? 'text-emerald-400' : 'text-amber-400'
+          }`}
+          aria-label={isFound ? 'Found' : 'Missing'}
+        >
+          {isFound ? '✓' : '✗'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-snug text-[#F5F3EA]">{claim.claim}</p>
+          <p className={`mt-1 text-xs leading-relaxed ${
+            isFound ? 'text-[#687386]' : 'text-amber-400/70'
+          }`}>
+            {claim.evidence}
+          </p>
+          {claim.interviewNote && (
+            <p className="mt-1.5 text-xs leading-relaxed text-[#687386] italic">
+              {claim.interviewNote}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ClaimsVsEvidence({ proof, repoUrl }: { proof: MissingProofDetection; repoUrl?: string }) {
+  const [showAll, setShowAll] = useState(false)
+
+  const visibleClaims = showAll ? proof.claims : proof.claims.slice(0, 3)
+  const hasMore = proof.claims.length > 3
+
+  return (
+    <div className="border-t border-[#242B3A] px-6 py-5">
+      <p className="mb-3 text-xs font-medium text-[#687386]">Claims vs. evidence</p>
+      <div className="space-y-2.5">
+        {visibleClaims.map((claim, i) => (
+          <ClaimRow key={i} claim={claim} />
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => {
+            const next = !showAll
+            if (next) posthog.capture('claims_evidence_expanded', { repo_url: repoUrl })
+            setShowAll(next)
+          }}
+          className="mt-3 flex items-center gap-1 text-xs font-medium text-[#7AA7FF] transition hover:text-[#9BB8FF]"
+        >
+          {showAll ? 'Show fewer' : `See ${proof.claims.length - 3} more`}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${showAll ? 'rotate-180' : ''}`} />
+        </button>
+      )}
+      {proof.readinessNote && (
+        <p className="mt-4 text-xs leading-relaxed text-[#687386]">{proof.readinessNote}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Main card ────────────────────────────────────────────────────────────────
 
 export default function RepoScoreCard({ score, repoUrl, saveStatus, onSave }: Props) {
   const [showAllScores, setShowAllScores] = useState(false)
@@ -247,6 +320,11 @@ export default function RepoScoreCard({ score, repoUrl, saveStatus, onSave }: Pr
           </div>
         )}
       </div>
+
+      {/* Claims vs. Evidence section — only present for new scans */}
+      {score.missingProof && score.missingProof.claims.length > 0 && (
+        <ClaimsVsEvidence proof={score.missingProof} repoUrl={repoUrl} />
+      )}
     </div>
   )
 }
