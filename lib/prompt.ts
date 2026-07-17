@@ -1,7 +1,7 @@
 import OpenAI, { APIConnectionTimeoutError } from 'openai'
-import type { RepoContext, RepoScore } from '@/types'
+import type { RepoContext, RepoScore, MissingProofDetection } from '@/types'
 import { normalizeRepoScore, filterRepoAdvice, readmeClaimsShippedProduct } from './repo-score'
-import { AnalyzeResponseSchema, RepoScoreSchema, type AnalyzeResponseOutput } from './schema'
+import { AnalyzeResponseSchema, RepoScoreWithProofSchema, type AnalyzeResponseOutput } from './schema'
 
 let _client: OpenAI | null = null
 function getClient() {
@@ -9,7 +9,7 @@ function getClient() {
   return _client
 }
 
-// ─── Resume bullet generation prompt ─────────────────────────────────────────
+// --- Resume bullet generation prompt ---
 
 export const SYSTEM_PROMPT = `You are a senior technical resume writer and SWE/AI recruiter.
 
@@ -91,7 +91,7 @@ Return only the final 3 bullets.
 
 `
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// --- Helpers ---
 
 const README_CHAR_LIMIT = 12000
 
@@ -123,7 +123,7 @@ function buildBulletMessage(ctx: RepoContext, targetRole?: string): string {
   return parts.join('\n')
 }
 
-// ─── Bullet generation ────────────────────────────────────────────────────────
+// --- Bullet generation ---
 
 const BULLETS_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
@@ -215,7 +215,7 @@ async function generateBulletsFirst(bulletMsg: string): Promise<BulletsResult> {
 }
 
 
-// ─── Repo scoring ─────────────────────────────────────────────────────────────
+// --- Repo scoring ---
 
 const SCORE_SYSTEM_PROMPT = `You are a senior software engineer auditing a GitHub repository for quality.
 
@@ -280,16 +280,25 @@ SCORING RULES:
 - weaknesses: exactly 3, each a real gap in the repo itself (clarity, structure, docs, completeness, code organization, missing examples/tests). NEVER suggest adding resume bullets, a "resume section", or recruiter-facing copy to the README.
 - fixes: exactly 3, each a specific improvement to the repo (better architecture docs, runnable demo, benchmarks, clearer README, tests, project structure). NEVER suggest "add resume bullet points to the README", CI integration, deployment URLs, or screenshots/GIFs as primary fixes.
 
+MISSING PROOF DETECTION:
+After scoring, audit the README for feature claims and verify each against the file tree, dependencies, and commit messages.
+- Extract 3-6 concrete feature claims from the README (e.g. "Authentication", "Dashboard", "REST API", "Database integration").
+- For each claim, check if there is a relevant file path, dependency name, or commit message keyword that proves it.
+- status "found": concrete evidence exists -- name the specific file, dependency, or commit.
+- status "missing": no verifiable trace exists in the provided repo context -- explain concisely why.
+- interviewNote: one sentence on what a technical interviewer would ask about this claim.
+- readinessNote: one sentence on how well this repo can be explained in a technical interview based on the evidence quality.
+
 Call generate_score.`
 
 const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'generate_score',
-    description: 'Generate an evidence-based repo quality score focused on engineering and repo completeness',
+    description: 'Generate an evidence-based repo quality score focused on engineering and repo completeness, with missing proof detection',
     parameters: {
       type: 'object',
-      required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes'],
+      required: ['total', 'label', 'summary', 'categories', 'strengths', 'weaknesses', 'fixes', 'missingProof'],
       properties: {
         total: { type: 'number', description: 'Sum of all 6 category scores (0–100).' },
         label: { type: 'string', description: 'One of: Recruiter-Ready, Strong Signal, Needs Polish, Weak Signal, Not Ready Yet' },
@@ -378,6 +387,46 @@ const SCORE_TOOL: OpenAI.Chat.ChatCompletionTool = {
           maxItems: 3,
           description: 'Exactly 3 repo improvements (docs, structure, demos, tests). Never suggest README resume sections, CI, deployment, or screenshots.',
         },
+        missingProof: {
+          type: 'object',
+          required: ['claims', 'readinessNote'],
+          description: 'Audit of README feature claims against file tree, dependencies, and commits.',
+          properties: {
+            claims: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 8,
+              description: '3-6 README feature claims, each verified or flagged as missing.',
+              items: {
+                type: 'object',
+                required: ['claim', 'status', 'evidence', 'interviewNote'],
+                properties: {
+                  claim: {
+                    type: 'string',
+                    description: 'Short name of the feature or capability claimed in the README (e.g. "JWT Authentication").',
+                  },
+                  status: {
+                    type: 'string',
+                    enum: ['found', 'missing'],
+                    description: '"found" if a file path, dependency, or commit message proves it. "missing" if no trace exists.',
+                  },
+                  evidence: {
+                    type: 'string',
+                    description: 'When found: name the file, dependency, or commit. When missing: explain why no trace was found.',
+                  },
+                  interviewNote: {
+                    type: 'string',
+                    description: 'One sentence on what a technical interviewer would ask about this claim.',
+                  },
+                },
+              },
+            },
+            readinessNote: {
+              type: 'string',
+              description: 'One sentence on how confidently this repo can be explained in a technical interview based on evidence quality.',
+            },
+          },
+        },
       },
     },
   },
@@ -397,16 +446,19 @@ function buildScoreMessage(ctx: RepoContext): string {
   parts.push(`Forks: ${ctx.forksCount}`)
   const readmeText = truncateReadme(ctx.readme)
   parts.push(`\nREADME:\n---\n${readmeText}\n---`)
-  parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only — not resume extractability. Call generate_score.`)
+  parts.push(`\nScore this repo across all 6 categories based only on the evidence above. Judge repo quality only -- not resume extractability. Audit README claims for missing proof. Call generate_score.`)
   return parts.join('\n')
 }
+
+type RawScoreWithProof = RepoScore & { missingProof?: MissingProofDetection }
 
 async function generateScore(ctx: RepoContext): Promise<RepoScore | undefined> {
   try {
     const response = await getClient().chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.3,
-      max_tokens: 1400,
+      // Raised from 1400 to accommodate missingProof claims array
+      max_tokens: 1800,
       messages: [
         { role: 'system', content: SCORE_SYSTEM_PROMPT },
         { role: 'user', content: buildScoreMessage(ctx) },
@@ -418,25 +470,32 @@ async function generateScore(ctx: RepoContext): Promise<RepoScore | undefined> {
     const toolCall = response.choices[0]?.message?.tool_calls?.[0]
     if (!toolCall || toolCall.type !== 'function') return undefined
 
-    const raw = JSON.parse(toolCall.function.arguments) as RepoScore
+    const raw = JSON.parse(toolCall.function.arguments) as RawScoreWithProof
     const normalized = normalizeRepoScore(raw)
     const filtered = filterRepoAdvice(normalized, {
       hasCI: ctx.hasCI,
       readmeClaimsShipped: readmeClaimsShippedProduct(ctx.readme),
     })
-    const parsed = RepoScoreSchema.safeParse(filtered)
+
+    // Carry missingProof through normalisation (it is not touched by normalizeRepoScore / filterRepoAdvice)
+    const withProof = {
+      ...filtered,
+      missingProof: raw.missingProof,
+    }
+
+    const parsed = RepoScoreWithProofSchema.safeParse(withProof)
     if (!parsed.success) {
       console.error('[RepoMax] Score schema validation failed:', parsed.error.flatten())
       return undefined
     }
-    return parsed.data
+    return parsed.data as RepoScore
   } catch (err) {
     console.error('[RepoMax] Score generation error:', err)
     return undefined
   }
 }
 
-// ─── Main entry point ─────────────────────────────────────────────────────────
+// --- Main entry point ---
 
 export async function generateContent(
   ctx: RepoContext,
@@ -464,7 +523,7 @@ export async function generateContent(
   return { resumeBullets, warnings: allWarnings, repoScore }
 }
 
-// ─── Exported helpers (used by tests / external callers) ─────────────────────
+// --- Exported helpers (used by tests / external callers) ---
 
 export function buildUserMessage(ctx: RepoContext, targetRole?: string): string {
   return buildBulletMessage(ctx, targetRole)
