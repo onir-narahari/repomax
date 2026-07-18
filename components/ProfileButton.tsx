@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import AuthModal from '@/components/AuthModal'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
@@ -10,7 +10,6 @@ import { ChevronDown } from 'lucide-react'
 
 export default function ProfileButton() {
   const router = useRouter()
-  const pathname = usePathname()
   const [user, setUser] = useState<SupabaseUser | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -43,9 +42,7 @@ export default function ProfileButton() {
 
   const handleAuthSuccess = () => {
     setShowAuth(false)
-    if (pathname === '/') {
-      router.push('/profile')
-    }
+    router.push('/profile')
   }
 
   const handleSignOut = async () => {
@@ -85,6 +82,7 @@ export default function ProfileButton() {
             initialMode={authMode}
             onClose={() => setShowAuth(false)}
             onSuccess={handleAuthSuccess}
+            redirectPath={`${window.location.origin}/profile`}
           />
         )}
       </>
