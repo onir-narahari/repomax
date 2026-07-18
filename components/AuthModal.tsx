@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-import { createClient } from '@/lib/supabase'
+import { createClient, oauthRedirectTo } from '@/lib/supabase'
 
 type Mode = 'signin' | 'signup'
 
@@ -11,6 +11,7 @@ interface Props {
   initialMode?: Mode
   onClose: () => void
   onSuccess: () => void
+  /** Path (+ optional query) to land on after OAuth completes, e.g. "/profile". Not a full URL. */
   redirectPath?: string
 }
 
@@ -70,7 +71,7 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
     setGoogleLoading(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: redirectPath ?? window.location.href },
+      options: { redirectTo: oauthRedirectTo(redirectPath ?? `${window.location.pathname}${window.location.search}`) },
     })
     if (error) {
       setError(error.message)
@@ -83,7 +84,7 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
     setGithubLoading(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: redirectPath ?? window.location.href },
+      options: { redirectTo: oauthRedirectTo(redirectPath ?? `${window.location.pathname}${window.location.search}`) },
     })
     if (error) {
       setError(error.message)

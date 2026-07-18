@@ -6,7 +6,7 @@ import { ArrowRight, Clipboard } from 'lucide-react'
 import posthog from 'posthog-js'
 import { buildGenerateHref, normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import { EXAMPLE_REPO_URL } from '@/lib/score-mock'
-import { createClient } from '@/lib/supabase'
+import { createClient, oauthRedirectTo } from '@/lib/supabase'
 
 const GithubMark = ({ className }: { className?: string }) => (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
@@ -29,7 +29,7 @@ export default function HeroRepoForm({ showLabel = true, showStrip = true }: { s
     posthog.capture('homepage_github_connect_clicked')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: `${window.location.origin}/profile` },
+      options: { redirectTo: oauthRedirectTo('/profile') },
     })
     if (error) setGithubLoading(false)
   }

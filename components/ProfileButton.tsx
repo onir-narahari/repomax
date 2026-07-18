@@ -82,7 +82,7 @@ export default function ProfileButton() {
             initialMode={authMode}
             onClose={() => setShowAuth(false)}
             onSuccess={handleAuthSuccess}
-            redirectPath={`${window.location.origin}/profile`}
+            redirectPath="/profile"
           />
         )}
       </>

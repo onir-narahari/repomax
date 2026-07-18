@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import posthog from 'posthog-js'
-import { createClient } from '@/lib/supabase'
+import { createClient, oauthRedirectTo } from '@/lib/supabase'
 
 const GithubMark = ({ className }: { className?: string }) => (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
@@ -33,7 +33,7 @@ export default function HeroGithubCta({
     posthog.capture('homepage_github_connect_clicked')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: `${window.location.origin}/profile` },
+      options: { redirectTo: oauthRedirectTo('/profile') },
     })
     if (error) setLoading(false)
   }

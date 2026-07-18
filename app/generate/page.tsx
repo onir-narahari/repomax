@@ -13,7 +13,7 @@ import AuthModal from '@/components/AuthModal'
 import ProfileButton from '@/components/ProfileButton'
 import GitHubRepoPicker from '@/components/GitHubRepoPicker'
 import type { SaveStatus } from '@/components/RepoScoreCard'
-import { createClient } from '@/lib/supabase'
+import { createClient, oauthRedirectTo } from '@/lib/supabase'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import type { AnalyzeResponse, AppErrorCode } from '@/types'
 
@@ -278,12 +278,12 @@ function GeneratePageContent() {
   const handleGithubConnect = async () => {
     setGithubConnectLoading(true)
     posthog.capture('generate_github_connect_clicked')
-    const redirectTo = submittedUrl
-      ? `${window.location.origin}${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
-      : window.location.href
+    const next = submittedUrl
+      ? `${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
+      : `${window.location.pathname}${window.location.search}`
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo },
+      options: { redirectTo: oauthRedirectTo(next) },
     })
     if (error) setGithubConnectLoading(false)
   }
@@ -392,7 +392,7 @@ function GeneratePageContent() {
           onSuccess={handleAuthSuccess}
           redirectPath={
             submittedUrl
-              ? `${window.location.origin}${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
+              ? `${window.location.pathname}?repo=${encodeURIComponent(submittedUrl)}`
               : undefined
           }
         />
