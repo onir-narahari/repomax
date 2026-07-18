@@ -1,4 +1,5 @@
-- [Score Ticker Component](project-score-ticker.md) — HeroScoreTicker rotating audit strip, location, behavior, conversion purpose
-- [Hero Form Structure](project-hero-form.md) — unified pill input row design, removed secondary CTA, inline example link placement
-- [Landing Page Layout](project-landing-layout.md) — Cluely-mechanic 85vh hero, continuous demo section, no border-t, second HeroRepoForm at bottom
-- [README Live Edit Section](project-readme-live-edit.md) — HomeReadmeLiveEdit: animated README panel, 4-issue cycling, score badge rAF animation, hero overlap absorbed here
+- [Landing Page Layout](project-landing-layout.md) — homepage section order post two-product reframe (2026-07-17); old memory here was stale, overwritten
+- [Hero Form / CTA](project-hero-form.md) — current hero: left-aligned, near-black bg, pink accent, modeled directly on resumax.ai
+- [README Live Edit Section](project-readme-live-edit.md) — HomeReadmeLiveEdit scaled down ~0.78x as supporting section, same demo logic
+- [Home Page Sections](project-home-page-sections.md) — HomePageSections.tsx rewritten as daily-job-matching section; TestimonialsCarousel copy replaced
+- [Score Ticker Component](project-score-ticker.md) — HeroScoreTicker.tsx exists but is currently unused/unwired, don't assume it's live

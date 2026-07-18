@@ -1,30 +1,26 @@
 ---
 name: project-readme-live-edit
-description: HomeReadmeLiveEdit section — full GitHub-styled README document with yellow-amber block highlighting, cycling issue fix cards, and animated score badge
+description: HomeReadmeLiveEdit section — same demo mechanics as before, but scaled down (~0.78x) as a supporting section with a new heading, not a hero-sized centerpiece
 metadata:
   type: project
 ---
 
-`components/HomeReadmeLiveEdit.tsx` is a client component inserted between `<LandingHero />` and `<HomePageSections />` in `app/page.tsx`.
+`components/HomeReadmeLiveEdit.tsx` sits between `<LandingHero />` and `<HomePageSections />` in `app/page.tsx`. As of the 2026-07-17 reframe it carries a new section heading — "See your repo the way recruiters do." — rendered above the demo, wrapped in `sectionMax`/`sectionX` from `lib/landing-layout.ts` (this file now imports `cn` and those two tokens; it didn't before).
 
-**No heroOverlapPad** — `HeroDemoPreview` was removed from `LandingHero.tsx` (and `heroOverlap` removed from its imports). `HomePageSections` uses `pt-20 sm:pt-24`. This section uses `py-20 sm:py-28` with `bg-[#131929] border-t border-[#303A55]`.
+**All demo mechanics are unchanged**: GitHub-chrome README mock, IntersectionObserver-triggered score animation (0→64 via rAF ease-out over 900ms), 4-card overlay (Gaps Flagged / Score+category breakdown / What we found / CTA) on desktop, stacked simplified cards on mobile.
 
-**Document style:** Real GitHub README rendering — white background (`bg-white`), `text-[#1f2328]`, GitHub dark header chrome (`bg-[#24292f]`) with octocat SVG + repo path + Star/Fork buttons, file path bar (`bg-[#f6f8fa] border-b border-[#d0d7de]`). Markdown elements styled with inline Tailwind to match GitHub exactly (h1/h2/h3 with border-b, code blocks `bg-[#f6f8fa]`, tables, inline code).
+**What changed is purely sizing** — every constant and font-size literal was scaled down by roughly 0.78x so the section reads as a supporting proof point rather than a second hero:
+- `STAGE_W` 1320→1056, `README_W` 780→624, `CARD_W` 248→200, `WIDE_CARD_W` 264→212, `CTA_CARD_W` 288→230
+- `ScoreRing` call sites: desktop 136→108, mobile 80→64
+- All `text-[Npx]` literals throughout `GitHubChrome`, `ReadmeDoc`, and the four overlay cards scaled down proportionally (e.g. 17px→14px, 16px→13px, 13px→11px, 9px→8px floor)
+- Section overlap margin trimmed slightly: `-mt-24/-28/-32` → `-mt-20/-24/-28`, `pb-10/12` → `pb-8/10`
 
-**README content:** RepoMax's own README.md (onir-narahari/repomax), rendered as structured JSX blocks with IDs: `block-h1`, `block-tagline`, `block-local-dev-h`, `block-deploy-h`, `block-deploy-body`.
+There's a pre-existing unused variable `gradeColor` (destructured from `grade(displayScore)` but never read) — this predates the reframe, not a regression from this pass, left as-is.
 
-**Highlight style:** Yellow-amber glow — `bg-[#fff8c5] outline outline-2 outline-[#d4a72c]/40 rounded` with `transition-all duration-500`. NOT red border.
+**Color pass (same day, later)**: the section's outer bg went `#131929` → near-black `#0A0A0F`, and the two cyan (`#38D9FF`) CTA buttons ("See my full breakdown →", mobile "Score my repo →") went pink (`#EC4899`, hover `#F472B6`, `text-white` instead of `text-[#07111F]`). Score-grade colors (WEAK/FAIR/GOOD/STRONG ring + label) and the red "Find your repo's gaps →" warning CTA are semantic, not brand accent — untouched. See [[project-hero-form]] for the full site color-scheme rationale.
 
-**Layout:** `grid-cols-1 lg:grid-cols-[1fr_280px]` — GitHub README left (no height cap, scrolls naturally), right column sticky `lg:sticky lg:top-8`.
+**Why:** The plan explicitly called for "scale down proportionally" rather than a content/logic rewrite, to keep this as a supporting section under the new oversized hero (see [[project-hero-form]]) instead of competing with it for visual weight.
 
-**Behavior:**
-- IntersectionObserver (threshold 0.3) auto-starts cycling when scrolled into view
-- 4 issues cycle every 3500ms (`CYCLE_MS`)
-- Active issue's `highlightIds` target block IDs via `ReadmeBlock` component receiving `isHighlighted` prop
-- Score animates via `requestAnimationFrame` ease-out cubic from current → `ISSUES[idx].scoreTarget` over 700ms
-- Starting score: 72; targets: 78 → 84 → 90 → 94
-- Grade thresholds: WEAK <73 (red), FAIR 73-82 (amber), GOOD 83-90 (blue), STRONG 91+ (emerald)
+**How to apply:** If asked to resize this section again, scale all the literals together (font sizes, the five width constants, ScoreRing sizes, paddings/gaps) rather than adjusting just one — they were tuned as a set to keep the four overlay cards clearing the README document's edges by ~16-22px.
 
-**4 issues:** No one-sentence hook (block-tagline) → No live demo link (block-h1) → No screenshot (block-local-dev-h) → Deploy instructions dominate (block-deploy-h + block-deploy-body).
-
-See also: [[project-landing-layout]]
+Related: [[project-landing-layout]], [[project-hero-form]]

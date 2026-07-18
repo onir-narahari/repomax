@@ -1,43 +1,26 @@
 ---
 name: project-landing-layout
-description: Landing page layout — full-height hero (no demo card), GitHub README live-edit section, diagnostic cards section with bottom CTA
+description: Homepage assembly and section-by-section structure after the 2026-07 "two products" reframe (Repo Score + daily job matching)
 metadata:
   type: project
 ---
 
-The landing page (`app/page.tsx`) is composed of three sections:
+RepoMax's homepage (`app/page.tsx`) assembly, current as of the two-product reframe:
 
-1. `LandingHero` — full-height hero
-2. `HomeReadmeLiveEdit` — GitHub README document with cycling annotations
-3. `HomePageSections` — diagnostic cards + bottom CTA
+1. `LandingHero` (`components/LandingHero.tsx`) — full `min-h-dvh` hero
+2. `HomeReadmeLiveEdit` (`components/HomeReadmeLiveEdit.tsx`) — README/gaps/score demo, now scaled down as a supporting section (not hero-sized)
+3. `HomePageSections` (`components/HomePageSections.tsx`) — daily job matching feature section (default export)
+4. `TestimonialsCarousel` (named export from the same file)
+5. Footer — inline in `app/page.tsx`
 
-**Hero section** (`LandingHero.tsx`):
-- `min-h-dvh flex-col overflow-visible bg-[#131929]`
-- **No HeroDemoPreview** — removed. Hero ends after the form CTA. `heroOverlap` is NOT imported or used.
-- Content: wordmark nav + headline ("Your repo is losing you interviews.") + subtext + `HeroRepoForm`
-- Headline: two `<span>` lines, `text-[2rem] sm:text-[2.75rem] lg:text-[3.25rem]`, `leading-[0.88] tracking-[-0.03em]`
-- Nav: wordmark left + `ReposScoredNavBadge` + "Free — no account needed" badge right
-- No stat pills, no bounce arrow, no product peek card
+**Prior memory in this file (pre-2026-07) is stale and was overwritten** — it described a hero with a paste-link/Connect-GitHub toggle form, a "Cluely-mechanic 85vh hero," and a tabbed Startup-Outreach/Interview-Prep features section. All of that was removed in the reframe below. Always verify against the live file before trusting old memory — this codebase changes fast.
 
-**HomeReadmeLiveEdit** (`components/HomeReadmeLiveEdit.tsx`):
-- `bg-[#131929] border-t border-[#303A55] py-20 sm:py-28`
-- Full GitHub-styled README document (white bg) with real GitHub chrome
-- See [[project-readme-live-edit]] for complete details
+## Product reframe (2026-07-17)
 
-**HomePageSections** (`components/HomePageSections.tsx`):
-- `bg-[#202941] border-t border-[#303A55] pt-20 pb-20 sm:pt-24 sm:pb-28`
-- `pt-20 sm:pt-24` (no hero overlap pad needed — HeroDemoPreview is gone)
-- 2×3 grid of diagnostic cards + radial glow final CTA with second `HeroRepoForm`
+RepoMax dropped Startup Outreach / Interview Prep / Social Post features. It now offers exactly two products:
+1. **Repo Score** — paste/connect a GitHub repo → score, gaps, resume bullets, README suggestions.
+2. **Daily job matching** — scans a user's 3 most recent GitHub repos, emails 3 matched job postings daily at 12pm.
 
-**HeroBackground** (`HeroBackground.tsx`):
-- Dark base `bg-[#131929]`
-- Layered CSS gradient aurora: purple ellipse from bottom, left/right depth accents, top fade, noise texture overlay
-- No canvas, no imported sub-components
+This drove a full homepage rewrite. See [[project-hero-form]] for the hero/CTA details, [[project-readme-live-edit]] for the scaled-down demo section, and [[project-home-page-sections]] for the new daily-matching section + testimonials.
 
-**CTA button text**: "Score My Repo"
-
-**Why:** HeroDemoPreview (before/after split card) removed to eliminate the hero overlap complexity and replace with a more impactful full-document GitHub README section.
-
-**How to apply:** Do not re-add `heroOverlap` to `LandingHero`. Do not re-add `heroOverlapPad` to `HomeReadmeLiveEdit`. The `HomePageSections` padding is `pt-20 sm:pt-24` because there's no card bleed-down anymore.
-
-Related: [[project-hero-form]], [[project-score-ticker]], [[project-readme-live-edit]]
+**How to apply:** If asked to touch the homepage, assume the two-product framing above is current truth unless the code shows otherwise (grep first — this file gets updated whenever the reframe evolves).

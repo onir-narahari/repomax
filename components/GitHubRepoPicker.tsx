@@ -7,6 +7,8 @@ import type { GitHubUserRepo } from '@/types'
 interface Props {
   username: string
   onSelectRepo: (repoUrl: string) => void
+  excludeUrl?: string
+  title?: string
 }
 
 export const LANGUAGE_COLORS: Record<string, string> = {
@@ -37,7 +39,7 @@ export function fmtUpdated(iso: string) {
 
 const VISIBLE_CAP = 3
 
-export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
+export default function GitHubRepoPicker({ username, onSelectRepo, excludeUrl, title = 'Pick a repo to score' }: Props) {
   const router = useRouter()
   const [repos, setRepos] = useState<GitHubUserRepo[] | null>(null)
   const [error, setError] = useState('')
@@ -56,16 +58,18 @@ export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
     return () => { cancelled = true }
   }, [])
 
+  const visibleRepos = repos?.filter((r) => r.htmlUrl !== excludeUrl) ?? null
+
   return (
-    <div className="rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-5">
+    <div className="rounded-2xl border border-[#242B3A] bg-[#0D111C] p-5 shadow-[0_20px_48px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-[#F5F3EA]">Pick a repo to score</p>
+        <p className="text-sm font-semibold text-[#F5F3EA]">{title}</p>
         <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 font-mono text-[10px] text-[#7AA7FF]">@{username}</span>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
-      {!error && repos === null && (
+      {!error && visibleRepos === null && (
         <div className="mt-4 space-y-2">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-[52px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
@@ -73,18 +77,18 @@ export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
         </div>
       )}
 
-      {repos !== null && repos.length === 0 && (
-        <p className="mt-4 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
+      {visibleRepos !== null && visibleRepos.length === 0 && (
+        <p className="mt-4 text-sm text-[#687386]">No other public repos found on your GitHub account yet.</p>
       )}
 
-      {repos !== null && repos.length > 0 && (
+      {visibleRepos !== null && visibleRepos.length > 0 && (
         <div className="mt-4 space-y-2">
-          {repos.slice(0, VISIBLE_CAP).map((repo) => (
+          {visibleRepos.slice(0, VISIBLE_CAP).map((repo) => (
             <button
               key={repo.name}
               type="button"
               onClick={() => onSelectRepo(repo.htmlUrl)}
-              className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#22C55E]/40"
+              className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#7AA7FF]/40"
             >
               <div className="min-w-0">
                 <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
@@ -95,19 +99,19 @@ export default function GitHubRepoPicker({ username, onSelectRepo }: Props) {
                   <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
                 </p>
               </div>
-              <span className="shrink-0 rounded-lg bg-[#22C55E]/15 px-3 py-1.5 text-xs font-semibold text-[#22C55E]">Scan →</span>
+              <span className="shrink-0 rounded-lg bg-[#7AA7FF]/15 px-3 py-1.5 text-xs font-semibold text-[#7AA7FF]">Score →</span>
             </button>
           ))}
         </div>
       )}
 
-      {repos !== null && repos.length > VISIBLE_CAP && (
+      {visibleRepos !== null && visibleRepos.length > VISIBLE_CAP && (
         <button
           type="button"
           onClick={() => router.push('/profile?view=repos')}
           className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#1E2A3D] py-2 text-xs font-medium text-[#7AA7FF] transition hover:border-[#334155]"
         >
-          View {repos.length - VISIBLE_CAP} more repos
+          View {visibleRepos.length - VISIBLE_CAP} more repos
         </button>
       )}
 

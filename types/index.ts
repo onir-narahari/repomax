@@ -132,3 +132,23 @@ export interface GitHubUserRepo {
   stars: number
   updatedAt: string
 }
+
+export interface JobPosting {
+  id: string
+  source: string
+  externalId: string
+  title: string
+  company: string
+  location: string | null
+  absoluteUrl: string
+  techTags: string[]
+  postedAt: string | null
+  isActive: boolean
+}
+
+export interface JobMatch {
+  jobPosting: JobPosting
+  matchedRepoName: string
+  matchReason: string
+  matchRank: number
+}
