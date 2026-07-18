@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { cn } from '@/lib/utils'
+import HeroGithubCta from '@/components/hero/HeroGithubCta'
 import {
   featuresSectionBg,
   featuresSectionBorder,
@@ -24,7 +25,6 @@ import {
 const BULLETS = [
   'Matches 3 open roles to your GitHub',
   'Delivered to your inbox every day at noon',
-  '700+ companies tracked, refreshed daily',
 ]
 
 const MATCHES = [
@@ -89,6 +89,7 @@ export default function HomePageSections() {
                 </li>
               ))}
             </ul>
+            <HeroGithubCta size="md" className="mt-7" label="Get your matches today" />
           </div>
 
           <TodaysMatchCard />

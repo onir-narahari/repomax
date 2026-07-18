@@ -175,7 +175,7 @@ npm run deploy`}</code>
 function Card({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
     <div
-      className={`rounded-2xl border border-white/[0.08] bg-[#111116]/95 backdrop-blur-md shadow-2xl p-4 ${className}`}
+      className={`rounded-2xl border border-white/[0.08] bg-[#111116]/95 backdrop-blur-md shadow-2xl p-5 ${className}`}
       style={style}
     >
       {children}
@@ -217,12 +217,12 @@ export default function HomeReadmeLiveEdit() {
 
   const { color: gradeColor } = grade(displayScore)
 
-  // Stage 1056, readme 624 → side gap = 216, card 200 → ~16px clear of README edges
-  const STAGE_W      = 1056
-  const README_W     = 624
-  const CARD_W       = 200
-  const WIDE_CARD_W  = 212
-  const CTA_CARD_W   = 230
+  // Stage 1180, readme 696 → side gap = 242, card 222 → ~18px clear of README edges
+  const STAGE_W      = 1180
+  const README_W     = 696
+  const CARD_W       = 222
+  const WIDE_CARD_W  = 236
+  const CTA_CARD_W   = 256
 
   return (
     <section
@@ -253,45 +253,45 @@ export default function HomeReadmeLiveEdit() {
           </div>
 
           {/* ── Top-left: Gaps flagged ───────────────────────────────── */}
-          <Card className="absolute top-6 -left-3 z-10 flex flex-col gap-3" style={{ width: `${WIDE_CARD_W}px` } as React.CSSProperties}>
+          <Card className="absolute top-6 -left-3 z-10 flex flex-col gap-3.5" style={{ width: `${WIDE_CARD_W}px` } as React.CSSProperties}>
             <div className="flex items-center justify-between">
-              <p className="text-[14px] font-bold text-white leading-snug">Gaps Flagged</p>
-              <span className="rounded-full bg-red-500/20 px-1.5 py-0.5 font-mono text-[8px] font-semibold text-red-400">3 found</span>
+              <p className="text-[16px] font-bold text-white leading-snug">Gaps Flagged</p>
+              <span className="rounded-full bg-red-500/20 px-2 py-1 font-mono text-[9px] font-semibold text-red-400">3 found</span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {[
                 'No live demo or deploy link',
                 'Hook fails the 5-second scan',
                 'Tech stack not front-loaded',
               ].map((gap, i) => (
-                <div key={i} className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-2.5 py-2">
-                  <span className="mt-0.5 shrink-0 text-[10px] font-bold text-red-400">!</span>
-                  <p className="text-[11px] font-semibold text-white leading-snug">{gap}</p>
+                <div key={i} className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5">
+                  <span className="mt-0.5 shrink-0 text-[11px] font-bold text-red-400">!</span>
+                  <p className="text-[12.5px] font-semibold text-white leading-snug">{gap}</p>
                 </div>
               ))}
             </div>
             <a
               href="/#top"
-              className="mt-1 flex items-center justify-center rounded-full bg-red-500 px-4 py-2 text-[11px] font-semibold text-white hover:bg-red-400 transition-colors"
+              className="mt-1 flex items-center justify-center rounded-full bg-red-500 px-5 py-2.5 text-[12.5px] font-semibold text-white hover:bg-red-400 transition-colors"
             >
               Find your repo&apos;s gaps →
             </a>
           </Card>
 
           {/* ── Top-right: Score + category breakdown ───────────────── */}
-          <Card className="absolute top-6 right-0 z-10 flex flex-col items-center gap-4 p-5" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
-            <ScoreRing score={displayScore} size={108} />
-            <div className="w-full space-y-2.5">
-              <p className="font-mono text-[8px] uppercase tracking-widest text-white/30 mb-2.5">Category breakdown</p>
+          <Card className="absolute top-6 right-0 z-10 flex flex-col items-center gap-5 p-5" style={{ width: `${CARD_W}px` } as React.CSSProperties}>
+            <ScoreRing score={displayScore} size={122} />
+            <div className="w-full space-y-3">
+              <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-1">Category breakdown</p>
               {CATEGORIES.map((cat) => (
                 <div key={cat.label}>
                   <div className="flex justify-between mb-1">
-                    <span className="text-[9.5px] text-white/80">{cat.label}</span>
-                    <span className="font-mono text-[9px] text-white/60">
+                    <span className="text-[11px] text-white/80">{cat.label}</span>
+                    <span className="font-mono text-[10px] text-white/60">
                       {cat.val}<span className="text-white/30">/{cat.max}</span>
                     </span>
                   </div>
-                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  <div className="h-[4px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{
@@ -307,48 +307,48 @@ export default function HomeReadmeLiveEdit() {
 
           {/* ── Bottom-left: What we found ───────────────────────────── */}
           <Card className="absolute bottom-6 -left-3 z-10 p-5" style={{ width: `${WIDE_CARD_W}px` } as React.CSSProperties}>
-            <p className="font-mono text-[8px] uppercase tracking-widest text-white/30 mb-3">What we found</p>
+            <p className="font-mono text-[9px] uppercase tracking-widest text-white/30 mb-3.5">What we found</p>
 
-            <p className="text-[13px] font-semibold text-white mb-1.5">Strengths identified</p>
-            <div className="space-y-1.5 mb-4">
+            <p className="text-[14.5px] font-semibold text-white mb-2">Strengths identified</p>
+            <div className="space-y-2 mb-[18px]">
               {[
                 'Setup takes three commands',
                 'Env vars: required vs optional',
               ].map((s) => (
                 <div key={s} className="flex items-start gap-2">
-                  <span className="mt-[6px] h-1 w-1 rounded-full bg-[#8B9DC3]/50 shrink-0" />
-                  <p className="text-[11px] text-[#8B9DC3] leading-snug">{s}</p>
+                  <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[#8B9DC3]/50 shrink-0" />
+                  <p className="text-[12.5px] text-[#8B9DC3] leading-snug">{s}</p>
                 </div>
               ))}
             </div>
 
-            <div className="h-px bg-white/[0.06] mb-4" />
+            <div className="h-px bg-white/[0.06] mb-[18px]" />
 
-            <p className="text-[13px] font-semibold text-white mb-1.5">Improvement suggestions</p>
-            <div className="space-y-1.5">
+            <p className="text-[14.5px] font-semibold text-white mb-2">Improvement suggestions</p>
+            <div className="space-y-2">
               {[
                 'No demo link or screenshot',
                 'Opening line reads like docs',
               ].map((s) => (
                 <div key={s} className="flex items-start gap-2">
-                  <span className="mt-[6px] h-1 w-1 rounded-full bg-[#8B9DC3]/50 shrink-0" />
-                  <p className="text-[11px] text-[#8B9DC3] leading-snug">{s}</p>
+                  <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-[#8B9DC3]/50 shrink-0" />
+                  <p className="text-[12.5px] text-[#8B9DC3] leading-snug">{s}</p>
                 </div>
               ))}
             </div>
           </Card>
 
           {/* ── Bottom-right: CTA ───────────────────────────────────── */}
-          <Card className="absolute bottom-6 -right-8 z-10 flex flex-col gap-3 p-5" style={{ width: `${CTA_CARD_W}px` } as React.CSSProperties}>
-            <p className="text-[15px] font-bold text-white leading-snug">
+          <Card className="absolute bottom-6 -right-8 z-10 flex flex-col gap-3.5 p-5" style={{ width: `${CTA_CARD_W}px` } as React.CSSProperties}>
+            <p className="text-[17px] font-bold text-white leading-snug">
               See your full breakdown.
             </p>
-            <p className="text-[11px] text-[#8B9DC3] leading-relaxed">
+            <p className="text-[12.5px] text-[#8B9DC3] leading-relaxed">
               Score, gaps, and resume bullets — 30 seconds.
             </p>
             <a
               href="/#top"
-              className="mt-1 flex items-center justify-center rounded-full bg-[#EC4899] px-4 py-2.5 text-[12px] font-semibold text-white hover:bg-[#F472B6] transition-colors"
+              className="mt-1 flex items-center justify-center rounded-full bg-[#EC4899] px-5 py-3 text-[13px] font-semibold text-white hover:bg-[#F472B6] transition-colors"
             >
               See my full breakdown →
             </a>

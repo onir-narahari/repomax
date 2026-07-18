@@ -19,9 +19,11 @@ const SIZE_CLASSES = {
 export default function HeroGithubCta({
   className = '',
   size = 'md',
+  label = 'Start free with GitHub',
 }: {
   className?: string
   size?: 'md' | 'lg'
+  label?: string
 }) {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
@@ -31,7 +33,7 @@ export default function HeroGithubCta({
     posthog.capture('homepage_github_connect_clicked')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: `${window.location.origin}/generate` },
+      options: { redirectTo: `${window.location.origin}/profile` },
     })
     if (error) setLoading(false)
   }
@@ -44,7 +46,7 @@ export default function HeroGithubCta({
       className={`inline-flex items-center justify-center rounded-full bg-[#EC4899] font-semibold text-white transition hover:bg-[#F472B6] hover:shadow-[0_0_28px_rgba(236,72,153,0.35)] disabled:cursor-wait disabled:opacity-80 ${SIZE_CLASSES[size]} ${className}`}
     >
       <GithubMark className={size === 'lg' ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
-      {loading ? 'Redirecting…' : 'Start free with GitHub'}
+      {loading ? 'Redirecting…' : label}
       {!loading && <ArrowRight className={size === 'lg' ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
     </button>
   )

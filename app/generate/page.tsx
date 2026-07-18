@@ -3,7 +3,7 @@
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import Wordmark from '@/components/Wordmark'
 import GenerateBackground from '@/components/GenerateBackground'
@@ -76,7 +76,6 @@ function LoadingLabel() {
 // ─── Main page content ─────────────────────────────────────────────────────────
 
 function GeneratePageContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const autoSubmitted = useRef(false)
   const [launchedFromQuery, setLaunchedFromQuery] = useState(false)
@@ -420,10 +419,11 @@ function GeneratePageContent() {
 
       {/* Main content */}
       <div
-        className={`relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 pb-16 sm:px-8 ${
-          isIdle ? 'justify-center py-10 sm:py-14' : hasResults ? 'pt-4 sm:pt-6' : 'pt-10 sm:pt-14'
-        }`}
+        className={`relative z-10 mx-auto flex w-full flex-1 flex-col px-6 pb-16 sm:px-8 ${
+          showCompactInput ? 'max-w-6xl lg:flex-row lg:items-start lg:gap-8' : 'max-w-5xl'
+        } ${isIdle ? 'justify-center py-10 sm:py-14' : hasResults ? 'pt-4 sm:pt-6' : 'pt-10 sm:pt-14'}`}
       >
+      <div className="min-w-0 flex-1">
         {/* Full idle/error input */}
         {showFullInput && (
           <section className="mb-8 anim-in" style={{ animationDelay: '80ms' }}>
@@ -496,28 +496,6 @@ function GeneratePageContent() {
           </section>
         )}
 
-        {/* Compact input after first score */}
-        {showCompactInput && (
-          <section className="mb-5 anim-in" style={{ animationDelay: '80ms' }}>
-            {githubUsername ? (
-              <div className="flex items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#0D111C] px-4 py-3">
-                <p className="font-mono text-sm text-[#F5F3EA]">
-                  {submittedUrl.replace('https://github.com/', '')} <span className="font-sans text-xs text-[#687386]">· scored</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={() => router.push('/profile?view=repos')}
-                  className="flex items-center gap-1.5 rounded-lg border border-[#242B3A] bg-[#111827] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA]"
-                >
-                  Pick another repo →
-                </button>
-              </div>
-            ) : (
-              repoInput(true)
-            )}
-          </section>
-        )}
-
         {/* Error banner */}
         {state.status === 'error' && (
           <div className="mb-6 anim-in">
@@ -537,6 +515,35 @@ function GeneratePageContent() {
             onSaveScore={handleSaveScore}
           />
         </div>
+      </div>
+
+      {/* Keep scoring — always visible next to the results, not buried below them */}
+      {showCompactInput && (
+        <aside className="mt-6 w-full shrink-0 anim-in lg:sticky lg:top-20 lg:mt-0 lg:w-[300px]">
+          {isAuthed && (
+            <Link
+              href="/profile"
+              className="mb-4 flex items-center gap-1.5 text-sm font-medium text-[#687386] transition hover:text-[#F5F3EA]"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to profile
+            </Link>
+          )}
+
+          {githubUsername ? (
+            <GitHubRepoPicker
+              username={githubUsername}
+              onSelectRepo={handlePickRepo}
+              excludeUrl={submittedUrl}
+              title="Score another repo"
+            />
+          ) : (
+            <div className="rounded-2xl border border-[#242B3A] bg-[#0D111C] p-5 shadow-[0_20px_48px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.03)]">
+              <p className="mb-4 text-sm font-semibold text-[#F5F3EA]">Score another repo</p>
+              {repoInput(true)}
+            </div>
+          )}
+        </aside>
+      )}
 
       </div>
 
