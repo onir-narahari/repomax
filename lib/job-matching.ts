@@ -197,43 +197,98 @@ function repoFullName(r: GitHubUserRepo): string | null {
   }
 }
 
-// Returns saved repo_full_name overrides for a user, ordered by position, or
-// null if the user has none set (or the lookup fails) — callers should treat
-// null the same as "no override, use auto-selection."
-async function fetchRepoOverrides(userId: string): Promise<string[] | null> {
+interface RepoOverride {
+  position: number
+  repoFullName: string
+}
+
+// Returns saved repo overrides for a user (position + repo_full_name),
+// ordered by position, or null if the user has none set (or the lookup
+// fails) — callers should treat null the same as "no override, use
+// auto-selection."
+async function fetchRepoOverrides(userId: string): Promise<RepoOverride[] | null> {
   try {
     const admin = createAdminClient()
     const { data, error } = await admin
       .from('user_job_repo_overrides')
-      .select('repo_full_name')
+      .select('position, repo_full_name')
       .eq('user_id', userId)
       .order('position', { ascending: true })
     if (error || !data || data.length === 0) return null
-    return (data as Array<{ repo_full_name: string }>).map((r) => r.repo_full_name)
+    return (data as Array<{ position: number; repo_full_name: string }>).map((r) => ({
+      position: r.position,
+      repoFullName: r.repo_full_name,
+    }))
   } catch {
     return null
   }
 }
 
-// Picks the candidate repo set: honors saved overrides (matched against the
-// user's real repos) when present, otherwise falls back to the N most
-// recently updated (repos is already sorted by updatedAt, filtered to
-// non-fork/non-empty — see fetchUserRepos).
-function selectCandidateRepos(repos: GitHubUserRepo[], overrideFullNames: string[] | null): GitHubUserRepo[] {
-  if (overrideFullNames && overrideFullNames.length > 0) {
-    const byFullName = new Map(repos.map((r) => [repoFullName(r), r] as const))
-    const selected: GitHubUserRepo[] = []
-    for (const fullName of overrideFullNames) {
-      const match = byFullName.get(fullName)
-      if (match) selected.push(match)
-      if (selected.length >= MAX_CANDIDATE_REPOS) break
-    }
-    // Only trust the override set if at least one override actually resolved
-    // to a real current repo — otherwise fall through to auto-selection
-    // rather than silently matching against nothing.
-    if (selected.length > 0) return selected
+// Picks the candidate repo set: starts from the auto-selected repos (N most
+// recently updated — repos is already sorted by updatedAt, filtered to
+// non-fork/non-empty, see fetchUserRepos) and merges saved overrides into
+// their specific slots on top, rather than replacing the whole list. Each
+// override is matched against the user's real current repos — a
+// stale/deleted repo name is ignored, not blindly trusted. If an override's
+// repo would duplicate another slot, the duplicate is dropped and backfilled
+// from the next best auto-pick not already used, so the result stays at up
+// to MAX_CANDIDATE_REPOS distinct repos.
+function selectCandidateRepos(repos: GitHubUserRepo[], overrides: RepoOverride[] | null): GitHubUserRepo[] {
+  const auto = repos.slice(0, MAX_CANDIDATE_REPOS)
+  if (!overrides || overrides.length === 0) return auto
+
+  const byFullName = new Map(repos.map((r) => [repoFullName(r), r] as const))
+  const resolved = overrides
+    .filter((o) => o.position >= 0 && o.position < MAX_CANDIDATE_REPOS)
+    .map((o) => ({ position: o.position, repo: byFullName.get(o.repoFullName) ?? null }))
+    .filter((o): o is { position: number; repo: GitHubUserRepo } => o.repo !== null)
+
+  // None of the overrides resolved to a real current repo — fall through to
+  // auto-selection rather than silently matching against nothing.
+  if (resolved.length === 0) return auto
+
+  // One slot per position, defaulting to the auto-pick that would otherwise
+  // land there, then drop each resolved override into its specific slot.
+  const slots: Array<GitHubUserRepo | null> = Array.from({ length: MAX_CANDIDATE_REPOS }, (_, i) => auto[i] ?? null)
+  for (const { position, repo } of resolved) {
+    slots[position] = repo
   }
-  return repos.slice(0, MAX_CANDIDATE_REPOS)
+
+  // Dedupe: keep the first occurrence of a given repo (lower position wins)
+  // and clear any later slot that duplicates it, so it can be backfilled.
+  const kept = new Set<string>()
+  for (let i = 0; i < slots.length; i++) {
+    const name = slots[i] ? repoFullName(slots[i] as GitHubUserRepo) : null
+    if (!name) continue
+    if (kept.has(name)) {
+      slots[i] = null
+    } else {
+      kept.add(name)
+    }
+  }
+
+  // Backfill empty slots (from dedup, or a position beyond what
+  // auto-selection alone would have filled) with the next best auto-pick not
+  // already used elsewhere.
+  const backfillPool = repos.filter((r) => {
+    const name = repoFullName(r)
+    return name !== null && !kept.has(name)
+  })
+  let poolIdx = 0
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] !== null) continue
+    while (poolIdx < backfillPool.length) {
+      const candidate = backfillPool[poolIdx++]
+      const name = repoFullName(candidate)
+      if (name && !kept.has(name)) {
+        slots[i] = candidate
+        kept.add(name)
+        break
+      }
+    }
+  }
+
+  return slots.filter((r): r is GitHubUserRepo => r !== null)
 }
 
 // Drops matches whose matchedRepoName isn't one of the actual candidate
