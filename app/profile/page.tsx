@@ -832,11 +832,11 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {githubUsername && jobMatchesError && (
+              {githubUsername && jobMatchesError && jobMatchGroups !== null && (
                 <p className="mb-6 text-sm text-red-400">{jobMatchesError}</p>
               )}
 
-              {githubUsername && jobMatchGroups === null && (
+              {githubUsername && jobMatchGroups === null && !jobMatchesError && (
                 <div className="space-y-8">
                   {[...Array(3)].map((_, i) => (
                     <div key={i}>
@@ -851,6 +851,25 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {githubUsername && jobMatchGroups === null && jobMatchesError && (
+                <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-6 py-16 text-center">
+                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
+                    <Briefcase className="h-4 w-4 text-red-400" />
+                  </span>
+                  <p className="text-sm font-medium text-red-400">{jobMatchesError}</p>
+                  <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">Something went wrong loading your matched roles.</p>
+                  <button
+                    type="button"
+                    onClick={() => fetchJobMatches({ refresh: true })}
+                    disabled={jobMatchesRefreshing}
+                    className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
+                    {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
+                  </button>
                 </div>
               )}
 

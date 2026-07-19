@@ -46,6 +46,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'INVALID_BODY' }, { status: 400 })
   }
 
+  // A slot (user_id, position) should only ever hold one repo. Clear out any
+  // stale row(s) left behind from previous swaps of this same slot before
+  // counting/upserting — otherwise repeated swaps of one position pile up
+  // extra rows that all share that position (breaking the ordering tiebreak
+  // in lib/job-matching.ts's fetchRepoOverrides) and can also falsely trip
+  // the TOO_MANY_OVERRIDES cap below.
+  const { error: cleanupError } = await supabase
+    .from('user_job_repo_overrides')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('position', position)
+    .neq('repo_full_name', repoFullName)
+
+  if (cleanupError) {
+    return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+  }
+
   const { count } = await supabase
     .from('user_job_repo_overrides')
     .select('repo_full_name', { count: 'exact', head: true })

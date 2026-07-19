@@ -84,7 +84,7 @@ const MatchSelectionSchema = z.object({
         confidence: z.number().min(0).max(100),
       })
     )
-    .min(1)
+    .min(0)
     .max(5),
 })
 
@@ -100,7 +100,7 @@ const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
       properties: {
         matches: {
           type: 'array',
-          minItems: 1,
+          minItems: 0,
           maxItems: 5,
           items: {
             type: 'object',
