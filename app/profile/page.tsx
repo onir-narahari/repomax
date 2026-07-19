@@ -1,20 +1,44 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X } from 'lucide-react'
+import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw, Repeat } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
 import ProfileButton from '@/components/ProfileButton'
 import OutputTabs from '@/components/OutputTabs'
 import { LANGUAGE_COLORS, fmtUpdated } from '@/components/GitHubRepoPicker'
-import type { AnalyzeResponse, GitHubUserRepo, JobMatch } from '@/types'
+import type { AnalyzeResponse, GitHubUserRepo } from '@/types'
 import type { User } from '@supabase/supabase-js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 type View = 'home' | 'past' | 'detail' | 'repos' | 'jobs'
+
+type RepoFetchStatus = 'ok' | 'failed'
+
+// One match within a repo section — the shape returned per-item by
+// GET /api/jobs/matches (see docs/prd-job-matching-revamp.md JM-9). Repo
+// attribution lives one level up (RepoMatchGroup.repoName), not on the
+// match itself, since the grouped UI already makes it the section header.
+interface RepoJobMatch {
+  title: string
+  company: string
+  location: string | null
+  techTags: string[]
+  reason: string
+  url: string
+  matchRank: number
+}
+
+// One section of the grouped jobs view — always present for every candidate
+// repo, even with zero matches or a failed fetch (JM-12/13/14).
+interface RepoMatchGroup {
+  repoName: string
+  fetchStatus: RepoFetchStatus
+  matches: RepoJobMatch[]
+}
 
 interface SavedScore {
   id: string
@@ -175,15 +199,15 @@ function NavButtons({ items, onSelect }: { items: NavItem[]; onSelect: (id: View
   )
 }
 
-function JobMatchCard({ m }: { m: JobMatch }) {
+function JobMatchCard({ m }: { m: RepoJobMatch }) {
   return (
     <div className="flex w-full flex-col rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-[#F5F3EA]">{m.jobPosting.title}</p>
+          <p className="truncate text-sm font-semibold text-[#F5F3EA]">{m.title}</p>
           <p className="mt-0.5 truncate text-xs text-[#687386]">
-            {m.jobPosting.company}
-            {m.jobPosting.location ? ` · ${m.jobPosting.location}` : ''}
+            {m.company}
+            {m.location ? ` · ${m.location}` : ''}
           </p>
         </div>
         <span className="shrink-0 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2 py-0.5 text-[10px] font-bold text-[#22C55E]">
@@ -191,9 +215,9 @@ function JobMatchCard({ m }: { m: JobMatch }) {
         </span>
       </div>
 
-      {m.jobPosting.techTags.length > 0 && (
+      {m.techTags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {m.jobPosting.techTags.slice(0, 5).map((tag) => (
+          {m.techTags.slice(0, 5).map((tag) => (
             <span key={tag} className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 text-[10px] text-[#9AA3B5]">
               {tag}
             </span>
@@ -201,12 +225,11 @@ function JobMatchCard({ m }: { m: JobMatch }) {
         </div>
       )}
 
-      <p className="mt-3 text-sm leading-snug text-[#9AA3B5]">{m.matchReason}</p>
+      <p className="mt-3 text-sm leading-snug text-[#9AA3B5]">{m.reason}</p>
 
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#1E2A3D] pt-3">
-        <span className="truncate font-mono text-[11px] text-[#7AA7FF]">matched from {m.matchedRepoName}</span>
+      <div className="mt-4 flex items-center justify-end border-t border-[#1E2A3D] pt-3">
         <a
-          href={m.jobPosting.absoluteUrl}
+          href={m.url}
           target="_blank"
           rel="noopener noreferrer"
           className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-[#F5F3EA] px-3 py-1.5 text-xs font-semibold text-[#070A12] transition hover:bg-white"
@@ -216,6 +239,128 @@ function JobMatchCard({ m }: { m: JobMatch }) {
       </div>
     </div>
   )
+}
+
+// ─── Job matching: per-repo section (JM-12 through JM-15) ──────────────────────
+
+function RepoMatchSection({
+  group,
+  githubUsername,
+  swapCandidates,
+  swapOpen,
+  swapSubmitting,
+  onToggleSwap,
+  onSwap,
+  onRetry,
+  retrying,
+}: {
+  group: RepoMatchGroup
+  githubUsername: string
+  swapCandidates: GitHubUserRepo[]
+  swapOpen: boolean
+  swapSubmitting: boolean
+  onToggleSwap: () => void
+  onSwap: (repoName: string) => void
+  onRetry: () => void
+  retrying: boolean
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate font-mono text-sm font-semibold text-[#F5F3EA]">{group.repoName}</h2>
+          <a
+            href={`https://github.com/${githubUsername}/${group.repoName}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-[#3D4A60] transition hover:text-[#7AA7FF]"
+            aria-label={`Open ${group.repoName} on GitHub`}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={onToggleSwap}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] px-2.5 py-1 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA]"
+          >
+            <Repeat className="h-3 w-3" /> Swap
+          </button>
+
+          {swapOpen && (
+            <div className="absolute right-0 top-full z-10 mt-2 w-64 rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-2 shadow-2xl shadow-black/60">
+              <p className="px-2 py-1 text-[11px] text-[#3D4A60]">Use a different repo for this slot</p>
+              {swapCandidates.length === 0 ? (
+                <p className="px-2 py-2 text-xs text-[#687386]">No other eligible repos found.</p>
+              ) : (
+                <div className="max-h-56 space-y-1 overflow-y-auto">
+                  {swapCandidates.map((r) => (
+                    <button
+                      key={r.name}
+                      type="button"
+                      disabled={swapSubmitting}
+                      onClick={() => onSwap(r.name)}
+                      className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs text-[#9AA3B5] transition hover:bg-[#111827] hover:text-[#F5F3EA] disabled:opacity-50"
+                    >
+                      <span className="truncate font-mono">{r.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {group.fetchStatus === 'failed' && (
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-5 py-8 text-center">
+          <p className="text-sm font-medium text-red-400">Couldn&apos;t load this repo.</p>
+          <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">GitHub didn&apos;t respond in time for this repo — the rest of your matches are unaffected.</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${retrying ? 'animate-spin' : ''}`} /> {retrying ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
+
+      {group.fetchStatus === 'ok' && group.matches.length === 0 && (
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-5 py-8 text-center">
+          <p className="text-sm text-[#9AA3B5]">No strong match yet for this repo.</p>
+          <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">We only surface roles that genuinely fit — nothing forced to fill a slot.</p>
+        </div>
+      )}
+
+      {group.fetchStatus === 'ok' && group.matches.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {group.matches.map((m) => (
+            <JobMatchCard key={`${group.repoName}-${m.matchRank}`} m={m} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Dynamic header/summary copy (JM-17) — reflects the actual match count and
+// repo spread instead of a hardcoded number.
+function jobsHeaderCopy(groups: RepoMatchGroup[] | null): string {
+  if (groups === null) return 'Matching open roles to your GitHub repos.'
+  if (groups.length === 0) return 'No eligible repos found to match against yet.'
+
+  const totalMatches = groups.reduce((sum, g) => sum + g.matches.length, 0)
+  const reposWithMatches = groups.filter((g) => g.matches.length > 0).length
+
+  if (totalMatches === 0) {
+    return `Checked ${groups.length} of your repos — no strong matches yet.`
+  }
+
+  return `${totalMatches} role${totalMatches === 1 ? '' : 's'} across ${reposWithMatches} of your project${reposWithMatches === 1 ? '' : 's'}.`
 }
 
 function PastRepoGridSkeleton() {
@@ -243,8 +388,11 @@ export default function ProfilePage() {
   const [loading, setLoading]   = useState(true)
   const [githubRepos, setGithubRepos] = useState<GitHubUserRepo[] | null>(null)
   const [githubReposError, setGithubReposError] = useState('')
-  const [jobMatches, setJobMatches] = useState<JobMatch[] | null>(null)
+  const [jobMatchGroups, setJobMatchGroups] = useState<RepoMatchGroup[] | null>(null)
   const [jobMatchesError, setJobMatchesError] = useState('')
+  const [jobMatchesRefreshing, setJobMatchesRefreshing] = useState(false)
+  const [swapOpenFor, setSwapOpenFor] = useState<string | null>(null)
+  const [swapSubmitting, setSwapSubmitting] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDivElement>(null)
 
@@ -293,16 +441,55 @@ export default function ProfilePage() {
       .catch(() => setGithubReposError('Could not load your repos from GitHub.'))
   }, [githubUsername])
 
-  useEffect(() => {
-    if (view !== 'jobs' || !githubUsername || jobMatches !== null) return
-    fetch('/api/jobs/matches')
+  // Fetches /api/jobs/matches (JM-9's grouped-by-repo shape). `refresh: true`
+  // bypasses the daily cache — used by the manual refresh button (JM-16),
+  // per-repo retry action (JM-14), and after a swap (JM-15) so the new
+  // candidate set is reflected immediately rather than waiting a day.
+  const fetchJobMatches = useCallback((opts?: { refresh?: boolean }) => {
+    setJobMatchesError('')
+    if (opts?.refresh) setJobMatchesRefreshing(true)
+    return fetch(`/api/jobs/matches${opts?.refresh ? '?refresh=1' : ''}`)
       .then(async (res) => {
         if (!res.ok) throw new Error()
         const data = await res.json()
-        setJobMatches(data.matches as JobMatch[])
+        setJobMatchGroups(data.repos as RepoMatchGroup[])
       })
       .catch(() => setJobMatchesError('Could not load your matched roles right now.'))
-  }, [view, githubUsername, jobMatches])
+      .finally(() => setJobMatchesRefreshing(false))
+  }, [])
+
+  useEffect(() => {
+    if (view !== 'jobs' || !githubUsername || jobMatchGroups !== null) return
+    fetchJobMatches()
+  }, [view, githubUsername, jobMatchGroups, fetchJobMatches])
+
+  // Swap action (JM-15): persists the override, then forces a full
+  // re-fetch so the new candidate set (not yesterday's cache) is reflected.
+  // There's no per-position patch endpoint — this calls the same
+  // repo-overrides POST described in the task brief with the chosen repo
+  // and this section's position.
+  const handleSwap = useCallback(
+    async (position: number, repoName: string) => {
+      if (!githubUsername) return
+      setSwapSubmitting(true)
+      setJobMatchesError('')
+      try {
+        const res = await fetch('/api/jobs/repo-overrides', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_full_name: `${githubUsername}/${repoName}`, position }),
+        })
+        if (!res.ok) throw new Error()
+        setSwapOpenFor(null)
+        await fetchJobMatches({ refresh: true })
+      } catch {
+        setJobMatchesError('Could not swap that repo in — try again.')
+      } finally {
+        setSwapSubmitting(false)
+      }
+    },
+    [githubUsername, fetchJobMatches]
+  )
 
   const openDetail = (s: SavedScore) => { setSelected(s); setView('detail') }
   const rescan     = (s: SavedScore) => router.push(`/generate?repo=${encodeURIComponent(s.repo_url)}`)
@@ -615,9 +802,22 @@ export default function ProfilePage() {
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-5xl px-6 py-8 sm:px-8 sm:py-10">
 
-              <div className="mb-8">
-                <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">My job postings</h1>
-                <p className="mt-1 text-sm text-[#687386]">3 open roles matched to your GitHub.</p>
+              <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">My job postings</h1>
+                  <p className="mt-1 text-sm text-[#687386]">{jobsHeaderCopy(jobMatchGroups)}</p>
+                </div>
+                {githubUsername && (
+                  <button
+                    type="button"
+                    onClick={() => fetchJobMatches({ refresh: true })}
+                    disabled={jobMatchesRefreshing}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-2 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
+                    {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
+                  </button>
+                )}
               </div>
 
               {!githubUsername && (
@@ -627,45 +827,65 @@ export default function ProfilePage() {
                   </span>
                   <p className="text-sm font-medium text-[#9AA3B5]">Connect GitHub to get matched.</p>
                   <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">
-                    Job matching is available for accounts signed in with GitHub — it looks at your 3 most recently updated public repos.
+                    Job matching is available for accounts signed in with GitHub — it looks at 3-4 of your active public repos (no forks, no empty ones).
                   </p>
                 </div>
               )}
 
               {githubUsername && jobMatchesError && (
-                <p className="text-sm text-red-400">{jobMatchesError}</p>
+                <p className="mb-6 text-sm text-red-400">{jobMatchesError}</p>
               )}
 
-              {githubUsername && !jobMatchesError && jobMatches === null && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {githubUsername && jobMatchGroups === null && (
+                <div className="space-y-8">
                   {[...Array(3)].map((_, i) => (
-                    <div key={i} className="rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5">
-                      <div className="h-4 w-2/3 animate-pulse rounded bg-[#1A2235]" />
-                      <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-[#1A2235]" />
-                      <div className="mt-4 h-3 w-full animate-pulse rounded bg-[#1A2235]" />
-                      <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-[#1A2235]" />
+                    <div key={i}>
+                      <div className="mb-3 h-4 w-32 animate-pulse rounded bg-[#1A2235]" />
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5">
+                          <div className="h-4 w-2/3 animate-pulse rounded bg-[#1A2235]" />
+                          <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-[#1A2235]" />
+                          <div className="mt-4 h-3 w-full animate-pulse rounded bg-[#1A2235]" />
+                          <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-[#1A2235]" />
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {githubUsername && jobMatches !== null && jobMatches.length === 0 && (
+              {githubUsername && jobMatchGroups !== null && jobMatchGroups.length === 0 && (
                 <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
                   <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
                     <Briefcase className="h-4 w-4 text-[#3D4A60]" />
                   </span>
-                  <p className="text-sm font-medium text-[#9AA3B5]">No strong matches today.</p>
+                  <p className="text-sm font-medium text-[#9AA3B5]">No eligible repos found yet.</p>
                   <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">
-                    We check again tomorrow — matches depend on which internship/new-grad roles are currently open.
+                    We match against active, non-fork public repos — push something and refresh.
                   </p>
                 </div>
               )}
 
-              {githubUsername && jobMatches !== null && jobMatches.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {jobMatches.map((m) => (
-                    <JobMatchCard key={`${m.jobPosting.id}-${m.matchRank}`} m={m} />
-                  ))}
+              {githubUsername && jobMatchGroups !== null && jobMatchGroups.length > 0 && (
+                <div className="space-y-8">
+                  {jobMatchGroups.map((group, idx) => {
+                    const candidateNames = new Set(jobMatchGroups.map((g) => g.repoName))
+                    const swapCandidates = (githubRepos ?? []).filter((r) => !candidateNames.has(r.name))
+                    return (
+                      <RepoMatchSection
+                        key={group.repoName}
+                        group={group}
+                        githubUsername={githubUsername}
+                        swapCandidates={swapCandidates}
+                        swapOpen={swapOpenFor === group.repoName}
+                        swapSubmitting={swapSubmitting}
+                        onToggleSwap={() => setSwapOpenFor((cur) => (cur === group.repoName ? null : group.repoName))}
+                        onSwap={(repoName) => handleSwap(idx, repoName)}
+                        onRetry={() => fetchJobMatches({ refresh: true })}
+                        retrying={jobMatchesRefreshing}
+                      />
+                    )
+                  })}
                 </div>
               )}
             </div>
