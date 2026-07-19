@@ -261,32 +261,66 @@ function finalizeMatches(matches: JobMatch[], profiles: RepoProfile[]): JobMatch
   return capped.map((m, i) => ({ ...m, matchRank: i + 1 }))
 }
 
-// Matches a user's most recently updated (or overridden) repos against the
-// active job posting pool. `repos` should already be sorted by updatedAt and
-// filtered to non-fork/non-empty (see fetchUserRepos). Pass `userId` to honor
-// any saved repo-selection overrides (user_job_repo_overrides) — omit it to
-// always use auto-selection.
-export async function matchJobsForRepos(
-  repos: GitHubUserRepo[],
-  activeJobPostings: JobPosting[],
-  userId?: string
-): Promise<JobMatch[]> {
-  if (repos.length === 0 || activeJobPostings.length === 0) return []
+// Per-repo result of fetchCandidateRepoContexts: 'ok' repos carry their
+// fetched RepoContext, 'failed' ones don't (fetch threw/rejected).
+export interface CandidateRepoContext {
+  repoName: string
+  status: 'ok' | 'failed'
+  context?: RepoContext
+}
 
+// Resolves the candidate repo set (honoring saved overrides when `userId` is
+// given) and fetches each candidate's GitHub context exactly once. This is
+// the ONLY place fetchRepoContext is called for job matching — callers that
+// need per-repo fetch status (e.g. the API route, for JM-8) AND the actual
+// matching pipeline (matchJobsForRepos) should both consume this function's
+// output rather than re-deriving candidates or re-fetching.
+export async function fetchCandidateRepoContexts(
+  repos: GitHubUserRepo[],
+  userId?: string
+): Promise<CandidateRepoContext[]> {
   const overrides = userId ? await fetchRepoOverrides(userId) : null
   const candidates = selectCandidateRepos(repos, overrides)
-  if (candidates.length === 0) return []
 
-  const contexts = await Promise.allSettled(
+  const results = await Promise.allSettled(
     candidates.map((r) => {
       const { owner, repo } = parseRepoUrl(r.htmlUrl)
       return fetchRepoContext(owner, repo)
     })
   )
 
-  const profiles = contexts
-    .filter((r): r is PromiseFulfilledResult<RepoContext> => r.status === 'fulfilled')
-    .map((r) => buildRepoProfile(r.value))
+  return candidates.map((r, i) => {
+    const result = results[i]
+    return result.status === 'fulfilled'
+      ? { repoName: r.name, status: 'ok' as const, context: result.value }
+      : { repoName: r.name, status: 'failed' as const }
+  })
+}
+
+// Resolves just the candidate repo names (same selection logic as
+// fetchCandidateRepoContexts, honoring overrides) without fetching any
+// GitHub context. For callers that need to know which repos are candidates
+// — e.g. to shape a cache-hit response — without paying for a fetch pass.
+export async function resolveCandidateRepoNames(repos: GitHubUserRepo[], userId?: string): Promise<string[]> {
+  const overrides = userId ? await fetchRepoOverrides(userId) : null
+  return selectCandidateRepos(repos, overrides).map((r) => r.name)
+}
+
+// Matches a set of already-fetched candidate repo contexts (see
+// fetchCandidateRepoContexts) against the active job posting pool. Repos
+// with status 'failed' are skipped, same as a dropped Promise.allSettled
+// rejection was before. Callers are responsible for resolving candidates and
+// fetching contexts up front (via fetchCandidateRepoContexts) — this
+// function does no selection or fetching of its own.
+export async function matchJobsForRepos(
+  candidateContexts: CandidateRepoContext[],
+  activeJobPostings: JobPosting[]
+): Promise<JobMatch[]> {
+  if (activeJobPostings.length === 0) return []
+
+  const profiles = candidateContexts
+    .filter((c): c is CandidateRepoContext & { context: RepoContext } => c.status === 'ok' && !!c.context)
+    .map((c) => buildRepoProfile(c.context))
 
   if (profiles.length === 0) return []
 

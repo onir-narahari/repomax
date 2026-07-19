@@ -1,18 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { fetchUserRepos, fetchRepoContext, parseRepoUrl } from '@/lib/github'
-import { matchJobsForRepos } from '@/lib/job-matching'
+import { fetchUserRepos } from '@/lib/github'
+import { matchJobsForRepos, fetchCandidateRepoContexts, resolveCandidateRepoNames } from '@/lib/job-matching'
 import type { JobMatch, JobPosting, GitHubUserRepo } from '@/types'
 
 export const maxDuration = 60
-
-// Mirrors MAX_CANDIDATE_REPOS in lib/job-matching.ts. Duplicated here (not
-// exported from there) because this route needs its own view of "which repos
-// are candidates" to report per-repo fetch status (JM-8) and to shape the
-// grouped-by-repo response (JM-9) even on a cache hit, without reaching into
-// lib/job-matching.ts's internals. Keep in sync if that constant changes.
-const MAX_CANDIDATE_REPOS = 4
 
 interface JobPostingRow {
   id: string
@@ -110,50 +103,6 @@ function buildGroupedResponse(
   }))
 }
 
-function repoFullName(r: GitHubUserRepo): string | null {
-  try {
-    const { owner, repo } = parseRepoUrl(r.htmlUrl)
-    return `${owner}/${repo}`
-  } catch {
-    return null
-  }
-}
-
-// Duplicated from lib/job-matching.ts's fetchRepoOverrides/selectCandidateRepos
-// (not exported there) so this route can independently determine the
-// candidate repo set for response shaping — see MAX_CANDIDATE_REPOS comment
-// above for why.
-async function fetchOverrideFullNames(
-  admin: ReturnType<typeof createAdminClient>,
-  userId: string
-): Promise<string[] | null> {
-  try {
-    const { data, error } = await admin
-      .from('user_job_repo_overrides')
-      .select('repo_full_name')
-      .eq('user_id', userId)
-      .order('position', { ascending: true })
-    if (error || !data || data.length === 0) return null
-    return (data as Array<{ repo_full_name: string }>).map((r) => r.repo_full_name)
-  } catch {
-    return null
-  }
-}
-
-function selectCandidateRepos(repos: GitHubUserRepo[], overrideFullNames: string[] | null): GitHubUserRepo[] {
-  if (overrideFullNames && overrideFullNames.length > 0) {
-    const byFullName = new Map(repos.map((r) => [repoFullName(r), r] as const))
-    const selected: GitHubUserRepo[] = []
-    for (const fullName of overrideFullNames) {
-      const match = byFullName.get(fullName)
-      if (match) selected.push(match)
-      if (selected.length >= MAX_CANDIDATE_REPOS) break
-    }
-    if (selected.length > 0) return selected
-  }
-  return repos.slice(0, MAX_CANDIDATE_REPOS)
-}
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const forceRefresh = searchParams.get('refresh') === '1'
@@ -178,9 +127,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'GITHUB_ERROR' }, { status: 502 })
   }
 
-  const overrideFullNames = await fetchOverrideFullNames(admin, user.id)
-  const candidates = selectCandidateRepos(repos, overrideFullNames)
-  const candidateNames = candidates.map((r) => r.name)
+  const candidateNames = await resolveCandidateRepoNames(repos, user.id)
 
   // Default (no ?refresh=1): serve today's cache if present, unchanged from
   // prior behavior. We didn't re-check fetch status for a cache hit (the
@@ -206,19 +153,12 @@ export async function GET(request: Request) {
   const { data: activePostingsRaw } = await admin.from('job_postings').select('*').eq('is_active', true).limit(500)
   const activePostings = ((activePostingsRaw as JobPostingRow[] | null) ?? []).map(rowToJobPosting)
 
-  // Fetch per-repo GitHub context ourselves (in addition to what
-  // matchJobsForRepos does internally) purely to observe and report
-  // per-repo success/failure (JM-8) — the actual matching pipeline still
-  // runs on whatever repos succeed, inside matchJobsForRepos.
-  const contextResults = await Promise.allSettled(
-    candidates.map((r) => {
-      const { owner, repo } = parseRepoUrl(r.htmlUrl)
-      return fetchRepoContext(owner, repo)
-    })
-  )
-  const statusByRepoName = new Map<string, FetchStatus>(
-    candidates.map((r, i) => [r.name, contextResults[i].status === 'fulfilled' ? 'ok' : 'failed'])
-  )
+  // Fetch each candidate repo's GitHub context exactly once, shared between
+  // the fetchStatus reported below (JM-8) and the matching pipeline itself —
+  // matchJobsForRepos consumes these same resolved contexts rather than
+  // re-fetching.
+  const candidateContexts = await fetchCandidateRepoContexts(repos, user.id)
+  const statusByRepoName = new Map<string, FetchStatus>(candidateContexts.map((c) => [c.repoName, c.status]))
 
   if (activePostings.length === 0) {
     return NextResponse.json({ repos: buildGroupedResponse(candidateNames, [], statusByRepoName) })
@@ -226,7 +166,7 @@ export async function GET(request: Request) {
 
   let matches: JobMatch[]
   try {
-    matches = await matchJobsForRepos(repos, activePostings, user.id)
+    matches = await matchJobsForRepos(candidateContexts, activePostings)
   } catch (err) {
     console.error('[RepoMax] job matching failed:', err)
     return NextResponse.json({ error: 'MATCH_ERROR' }, { status: 502 })
