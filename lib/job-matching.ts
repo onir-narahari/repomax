@@ -12,7 +12,7 @@ function getClient() {
 }
 
 const SHORTLIST_PER_REPO = 8
-const MAX_CANDIDATE_REPOS = 4
+export const MAX_CANDIDATE_REPOS = 4
 // Tune these against real match output — see docs/prd-job-matching-revamp.md.
 const MIN_MATCH_CONFIDENCE = 60
 const MAX_MATCHES_PER_REPO = 2

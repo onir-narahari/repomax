@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
-
-const MAX_OVERRIDES = 4
+import { MAX_CANDIDATE_REPOS } from '@/lib/job-matching'
 
 export async function GET() {
   const supabase = await createClient()
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
     .eq('user_id', user.id)
     .neq('repo_full_name', repoFullName)
 
-  if ((count ?? 0) >= MAX_OVERRIDES) {
+  if ((count ?? 0) >= MAX_CANDIDATE_REPOS) {
     return NextResponse.json({ error: 'TOO_MANY_OVERRIDES' }, { status: 400 })
   }
 

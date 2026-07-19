@@ -130,11 +130,13 @@ export async function GET(request: Request) {
   const candidateNames = await resolveCandidateRepoNames(repos, user.id)
 
   // Default (no ?refresh=1): serve today's cache if present, unchanged from
-  // prior behavior. We didn't re-check fetch status for a cache hit (the
-  // pipeline already ran to completion when it was written), so every
-  // candidate reports 'ok' here — a repo that fails to fetch shows as "no
-  // strong match yet" rather than a distinct failed state until the cache
-  // is refreshed.
+  // prior behavior. Fetch status for a cache hit is read back from
+  // user_job_repo_status (persisted the last time this was freshly computed
+  // today) so a repo whose GitHub fetch actually failed still reports
+  // 'failed' on reload instead of always showing 'ok'. If that table has no
+  // row for a repo (e.g. computed before this table existed) — or the table
+  // doesn't exist at all because migration 0003 hasn't been applied yet —
+  // fall back to 'ok', same as prior behavior.
   if (!forceRefresh) {
     const { data: existing } = await admin
       .from('user_job_matches')
@@ -145,8 +147,24 @@ export async function GET(request: Request) {
 
     if (existing && existing.length > 0) {
       const matches = (existing as unknown as MatchRow[]).map(rowToMatch).filter((m): m is JobMatch => m !== null)
-      const okStatuses = new Map(candidateNames.map((name) => [name, 'ok' as const]))
-      return NextResponse.json({ repos: buildGroupedResponse(candidateNames, matches, okStatuses) })
+      const statuses = new Map<string, FetchStatus>(candidateNames.map((name) => [name, 'ok']))
+      try {
+        const { data: statusRows, error: statusError } = await admin
+          .from('user_job_repo_status')
+          .select('repo_name, fetch_status')
+          .eq('user_id', user.id)
+          .eq('match_date', today)
+        if (statusError) {
+          console.error('[RepoMax] user_job_repo_status read failed:', statusError)
+        } else {
+          for (const row of (statusRows as Array<{ repo_name: string; fetch_status: FetchStatus }> | null) ?? []) {
+            if (statuses.has(row.repo_name)) statuses.set(row.repo_name, row.fetch_status)
+          }
+        }
+      } catch (err) {
+        console.error('[RepoMax] user_job_repo_status read threw:', err)
+      }
+      return NextResponse.json({ repos: buildGroupedResponse(candidateNames, matches, statuses) })
     }
   }
 
@@ -159,6 +177,28 @@ export async function GET(request: Request) {
   // re-fetching.
   const candidateContexts = await fetchCandidateRepoContexts(repos, user.id)
   const statusByRepoName = new Map<string, FetchStatus>(candidateContexts.map((c) => [c.repoName, c.status]))
+
+  // Best-effort persistence of today's per-repo fetch status so a later
+  // same-day cache-hit reload can report real 'failed' states instead of
+  // hardcoding 'ok'. This must never block returning match data — if the
+  // table doesn't exist yet (migration 0003 not applied), just log and
+  // move on.
+  if (candidateContexts.length > 0) {
+    try {
+      const { error: statusUpsertError } = await admin.from('user_job_repo_status').upsert(
+        candidateContexts.map((c) => ({
+          user_id: user.id,
+          match_date: today,
+          repo_name: c.repoName,
+          fetch_status: c.status,
+        })),
+        { onConflict: 'user_id,match_date,repo_name' }
+      )
+      if (statusUpsertError) console.error('[RepoMax] user_job_repo_status upsert failed:', statusUpsertError)
+    } catch (err) {
+      console.error('[RepoMax] user_job_repo_status upsert threw:', err)
+    }
+  }
 
   if (activePostings.length === 0) {
     return NextResponse.json({ repos: buildGroupedResponse(candidateNames, [], statusByRepoName) })
