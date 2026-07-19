@@ -2,6 +2,7 @@ import OpenAI, { APIConnectionTimeoutError } from 'openai'
 import { z } from 'zod'
 import { deriveTechTags } from './job-postings'
 import { fetchRepoContext, parseRepoUrl } from './github'
+import { createAdminClient } from './supabase-admin'
 import type { GitHubUserRepo, JobPosting, JobMatch, RepoContext } from '@/types'
 
 let _client: OpenAI | null = null
@@ -11,7 +12,11 @@ function getClient() {
 }
 
 const SHORTLIST_PER_REPO = 8
-const MAX_CANDIDATE_REPOS = 3
+const MAX_CANDIDATE_REPOS = 4
+// Tune these against real match output — see docs/prd-job-matching-revamp.md.
+const MIN_MATCH_CONFIDENCE = 60
+const MAX_MATCHES_PER_REPO = 2
+const MAX_TOTAL_MATCHES = 5
 
 interface RepoProfile {
   repoName: string
@@ -76,10 +81,11 @@ const MatchSelectionSchema = z.object({
         jobIndex: z.number().int().min(0),
         matchedRepoName: z.string().min(1),
         matchReason: z.string().min(15).max(200),
+        confidence: z.number().min(0).max(100),
       })
     )
     .min(1)
-    .max(3),
+    .max(5),
 })
 
 const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
@@ -87,7 +93,7 @@ const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
   function: {
     name: 'select_job_matches',
     description:
-      'Pick up to 3 of the best-fit job postings for this candidate and explain why each one fits. Spread picks across the candidate\'s repos rather than grounding all 3 in a single repo, unless only one repo was provided.',
+      'Pick up to 5 of the best-fit job postings for this candidate and explain why each one fits. Spread picks across the candidate\'s repos rather than grounding them all in a single repo, unless only one repo was provided.',
     parameters: {
       type: 'object',
       required: ['matches'],
@@ -95,10 +101,10 @@ const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
         matches: {
           type: 'array',
           minItems: 1,
-          maxItems: 3,
+          maxItems: 5,
           items: {
             type: 'object',
-            required: ['jobIndex', 'matchedRepoName', 'matchReason'],
+            required: ['jobIndex', 'matchedRepoName', 'matchReason', 'confidence'],
             properties: {
               jobIndex: { type: 'integer', description: 'Index into the provided job list (0-based).' },
               matchedRepoName: { type: 'string', description: 'Which of the candidate\'s repos this match is grounded in.' },
@@ -106,6 +112,11 @@ const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
                 type: 'string',
                 description:
                   'One sentence, grounded only in overlapping stack/project type between the repo and the posting. Never invent fit — no "great culture fit" or unsupported claims.',
+              },
+              confidence: {
+                type: 'number',
+                description:
+                  '0-100: how genuinely strong the overlap is between this repo and this posting (shared language/framework/project domain). Score honestly — do not default to a high number. A tenuous or generic overlap should score low (well under 50), not be omitted-but-included-anyway at a high score.',
               },
             },
           },
@@ -117,15 +128,11 @@ const SELECT_TOOL: OpenAI.Chat.ChatCompletionTool = {
 
 const RERANK_SYSTEM_PROMPT = `You are matching a CS student's GitHub projects to open internship software engineering roles.
 
-Pick up to 3 postings from the provided list that best match the candidate's repos, ranked best first. Only pick a posting if there's real overlap — shared language, framework, or project domain (e.g. a repo using React/Node matches a full-stack posting; an ML repo matches an ML engineering posting).
+Pick up to 5 postings from the provided list that best match the candidate's repos, ranked best first. Only pick a posting if there's real overlap — shared language, framework, or project domain (e.g. a repo using React/Node matches a full-stack posting; an ML repo matches an ML engineering posting).
 
-Spread the 3 matches across the candidate's repos — do not ground all 3 in the same repo just because it has the strongest tags. Given N candidate repos:
-- 3 repos provided: prefer one match per repo (one each).
-- 2 repos provided: prefer a 2-1 split across them, not 3-0.
-- 1 repo provided: all 3 matches may come from it — there's nothing else to draw from.
-Only deviate from this (e.g. 2 matches from one repo when 2+ repos are available) when a repo genuinely has no reasonable match in the list — never force a weak match just to hit an even split.
+Spread matches across the candidate's repos — do not ground them all in the same repo just because it has the strongest tags. Prefer at most 2 matches from any single repo, and prefer covering more repos over piling multiple matches onto one, unless other repos genuinely have no reasonable match in the list. Never force a weak match just to hit an even split or fill a quota — it is correct and expected to return fewer than 5, including zero, when overlap is weak.
 
-For each match, write one concise, specific sentence naming which repo it's grounded in and what actually overlaps. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. If fewer than 3 postings genuinely overlap, return fewer than 3 — do not force a weak match.`
+For each match, write one concise, specific sentence naming which repo it's grounded in and what actually overlaps. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. Score \`confidence\` honestly (0-100) — this is used downstream to filter out weak matches, so an inflated score defeats the purpose.`
 
 async function rerankAndExplain(profiles: RepoProfile[], shortlist: JobPosting[]): Promise<JobMatch[]> {
   if (shortlist.length === 0) return []
@@ -175,16 +182,100 @@ async function rerankAndExplain(profiles: RepoProfile[], shortlist: JobPosting[]
       matchedRepoName: m.matchedRepoName,
       matchReason: m.matchReason,
       matchRank: i + 1,
+      confidence: m.confidence,
     })
   })
-  return matches.slice(0, 3)
+  return matches
 }
 
-// Matches a user's 3 most recently updated repos against the active job
-// posting pool. Repos are already sorted by updatedAt (see fetchUserRepos).
-export async function matchJobsForRepos(repos: GitHubUserRepo[], activeJobPostings: JobPosting[]): Promise<JobMatch[]> {
-  const candidates = repos.slice(0, MAX_CANDIDATE_REPOS)
-  if (candidates.length === 0 || activeJobPostings.length === 0) return []
+function repoFullName(r: GitHubUserRepo): string | null {
+  try {
+    const { owner, repo } = parseRepoUrl(r.htmlUrl)
+    return `${owner}/${repo}`
+  } catch {
+    return null
+  }
+}
+
+// Returns saved repo_full_name overrides for a user, ordered by position, or
+// null if the user has none set (or the lookup fails) — callers should treat
+// null the same as "no override, use auto-selection."
+async function fetchRepoOverrides(userId: string): Promise<string[] | null> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin
+      .from('user_job_repo_overrides')
+      .select('repo_full_name')
+      .eq('user_id', userId)
+      .order('position', { ascending: true })
+    if (error || !data || data.length === 0) return null
+    return (data as Array<{ repo_full_name: string }>).map((r) => r.repo_full_name)
+  } catch {
+    return null
+  }
+}
+
+// Picks the candidate repo set: honors saved overrides (matched against the
+// user's real repos) when present, otherwise falls back to the N most
+// recently updated (repos is already sorted by updatedAt, filtered to
+// non-fork/non-empty — see fetchUserRepos).
+function selectCandidateRepos(repos: GitHubUserRepo[], overrideFullNames: string[] | null): GitHubUserRepo[] {
+  if (overrideFullNames && overrideFullNames.length > 0) {
+    const byFullName = new Map(repos.map((r) => [repoFullName(r), r] as const))
+    const selected: GitHubUserRepo[] = []
+    for (const fullName of overrideFullNames) {
+      const match = byFullName.get(fullName)
+      if (match) selected.push(match)
+      if (selected.length >= MAX_CANDIDATE_REPOS) break
+    }
+    // Only trust the override set if at least one override actually resolved
+    // to a real current repo — otherwise fall through to auto-selection
+    // rather than silently matching against nothing.
+    if (selected.length > 0) return selected
+  }
+  return repos.slice(0, MAX_CANDIDATE_REPOS)
+}
+
+// Drops matches whose matchedRepoName isn't one of the actual candidate
+// repos (never trust the LLM's attribution blindly), drops anything below
+// the confidence bar, then enforces the per-repo and total caps — keeping
+// the highest-confidence matches when trimming. No fallback/flex: a repo or
+// user with nothing that clears the bar correctly ends up with fewer
+// matches, including zero.
+function finalizeMatches(matches: JobMatch[], profiles: RepoProfile[]): JobMatch[] {
+  const validRepoNames = new Set(profiles.map((p) => p.repoName))
+  const validated = matches.filter((m) => validRepoNames.has(m.matchedRepoName))
+  const aboveThreshold = validated.filter((m) => (m.confidence ?? 0) >= MIN_MATCH_CONFIDENCE)
+  const sorted = [...aboveThreshold].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+
+  const perRepoCount = new Map<string, number>()
+  const capped: JobMatch[] = []
+  for (const m of sorted) {
+    if (capped.length >= MAX_TOTAL_MATCHES) break
+    const count = perRepoCount.get(m.matchedRepoName) ?? 0
+    if (count >= MAX_MATCHES_PER_REPO) continue
+    perRepoCount.set(m.matchedRepoName, count + 1)
+    capped.push(m)
+  }
+
+  return capped.map((m, i) => ({ ...m, matchRank: i + 1 }))
+}
+
+// Matches a user's most recently updated (or overridden) repos against the
+// active job posting pool. `repos` should already be sorted by updatedAt and
+// filtered to non-fork/non-empty (see fetchUserRepos). Pass `userId` to honor
+// any saved repo-selection overrides (user_job_repo_overrides) — omit it to
+// always use auto-selection.
+export async function matchJobsForRepos(
+  repos: GitHubUserRepo[],
+  activeJobPostings: JobPosting[],
+  userId?: string
+): Promise<JobMatch[]> {
+  if (repos.length === 0 || activeJobPostings.length === 0) return []
+
+  const overrides = userId ? await fetchRepoOverrides(userId) : null
+  const candidates = selectCandidateRepos(repos, overrides)
+  if (candidates.length === 0) return []
 
   const contexts = await Promise.allSettled(
     candidates.map((r) => {
@@ -200,5 +291,6 @@ export async function matchJobsForRepos(repos: GitHubUserRepo[], activeJobPostin
   if (profiles.length === 0) return []
 
   const shortlist = shortlistJobs(profiles, activeJobPostings)
-  return rerankAndExplain(profiles, shortlist)
+  const rawMatches = await rerankAndExplain(profiles, shortlist)
+  return finalizeMatches(rawMatches, profiles)
 }

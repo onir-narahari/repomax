@@ -131,6 +131,7 @@ export interface GitHubUserRepo {
   language: string | null
   stars: number
   updatedAt: string
+  size: number
 }
 
 export interface JobPosting {
@@ -151,4 +152,9 @@ export interface JobMatch {
   matchedRepoName: string
   matchReason: string
   matchRank: number
+  // Optional for backward compat with matches read from user_job_matches
+  // rows written before this field existed / before the API layer persists
+  // it (see JM-8/JM-9 in docs/kanban-job-matching-revamp.md) — matches
+  // produced by matchJobsForRepos() always set it.
+  confidence?: number
 }

@@ -350,13 +350,18 @@ export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]
     language: string | null
     stargazers_count: number
     updated_at: string
+    size: number
   }>)
-    .filter((r) => !r.fork && !r.private)
+    // Exclude forks, private repos, and empty repos (size === 0, same signal
+    // fetchMetadata uses for EMPTY_REPO) — a fork or a repo with no pushed
+    // content shouldn't be eligible as a job-matching candidate.
+    .filter((r) => !r.fork && !r.private && (r.size ?? 0) > 0)
     .map((r) => ({
       name: r.name,
       htmlUrl: r.html_url,
       language: r.language,
       stars: r.stargazers_count ?? 0,
       updatedAt: r.updated_at,
+      size: r.size ?? 0,
     }))
 }
