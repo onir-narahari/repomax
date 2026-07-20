@@ -10,6 +10,8 @@ function makeRepo(overrides: Partial<GitHubUserRepo> & { name: string }): GitHub
     stars: overrides.stars ?? 0,
     updatedAt: overrides.updatedAt ?? '2024-05-01T00:00:00Z',
     size: overrides.size ?? 500,
+    description: overrides.description ?? null,
+    topics: overrides.topics ?? [],
   }
 }
 
