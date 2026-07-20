@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw, Repeat } from 'lucide-react'
+import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
 import ProfileButton from '@/components/ProfileButton'
 import OutputTabs from '@/components/OutputTabs'
+import JobsOnboardingConfirm from '@/components/JobsOnboardingConfirm'
 import { LANGUAGE_COLORS, fmtUpdated } from '@/components/GitHubRepoPicker'
 import type { AnalyzeResponse, GitHubUserRepo } from '@/types'
 import type { User } from '@supabase/supabase-js'
@@ -246,21 +247,11 @@ function JobMatchCard({ m }: { m: RepoJobMatch }) {
 function RepoMatchSection({
   group,
   githubUsername,
-  swapCandidates,
-  swapOpen,
-  swapSubmitting,
-  onToggleSwap,
-  onSwap,
   onRetry,
   retrying,
 }: {
   group: RepoMatchGroup
   githubUsername: string
-  swapCandidates: GitHubUserRepo[]
-  swapOpen: boolean
-  swapSubmitting: boolean
-  onToggleSwap: () => void
-  onSwap: (repoName: string) => void
   onRetry: () => void
   retrying: boolean
 }) {
@@ -278,39 +269,6 @@ function RepoMatchSection({
           >
             <ExternalLink className="h-3 w-3" />
           </a>
-        </div>
-
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onClick={onToggleSwap}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] px-2.5 py-1 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA]"
-          >
-            <Repeat className="h-3 w-3" /> Swap
-          </button>
-
-          {swapOpen && (
-            <div className="absolute right-0 top-full z-10 mt-2 w-64 rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-2 shadow-2xl shadow-black/60">
-              <p className="px-2 py-1 text-[11px] text-[#3D4A60]">Use a different repo for this slot</p>
-              {swapCandidates.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-[#687386]">No other eligible repos found.</p>
-              ) : (
-                <div className="max-h-56 space-y-1 overflow-y-auto">
-                  {swapCandidates.map((r) => (
-                    <button
-                      key={r.name}
-                      type="button"
-                      disabled={swapSubmitting}
-                      onClick={() => onSwap(r.name)}
-                      className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs text-[#9AA3B5] transition hover:bg-[#111827] hover:text-[#F5F3EA] disabled:opacity-50"
-                    >
-                      <span className="truncate font-mono">{r.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -391,8 +349,9 @@ export default function ProfilePage() {
   const [jobMatchGroups, setJobMatchGroups] = useState<RepoMatchGroup[] | null>(null)
   const [jobMatchesError, setJobMatchesError] = useState('')
   const [jobMatchesRefreshing, setJobMatchesRefreshing] = useState(false)
-  const [swapOpenFor, setSwapOpenFor] = useState<string | null>(null)
-  const [swapSubmitting, setSwapSubmitting] = useState(false)
+  const [jobsProfile, setJobsProfile] = useState<{ onboarded: boolean; status: 'active' | 'needs_reonboarding'; repoNames: string[] } | null>(null)
+  const [jobsProfileError, setJobsProfileError] = useState('')
+  const [jobsConfirmMode, setJobsConfirmMode] = useState<'edit' | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDivElement>(null)
 
@@ -441,10 +400,29 @@ export default function ProfilePage() {
       .catch(() => setGithubReposError('Could not load your repos from GitHub.'))
   }, [githubUsername])
 
+  // Checks the onboarding gate for job matching (issue #15) as soon as
+  // GitHub is connected — not gated on the jobs view being open — so the
+  // "Analyzing your projects…" work the confirm screen kicks off has as
+  // much of a head start as possible (docs/prd-job-matching.md §9).
+  useEffect(() => {
+    if (!githubUsername) return
+    fetch('/api/jobs/profile')
+      .then(async (res) => {
+        if (!res.ok) throw new Error()
+        const data = await res.json()
+        setJobsProfile({
+          onboarded: data.onboarded as boolean,
+          status: data.status as 'active' | 'needs_reonboarding',
+          repoNames: data.repoNames as string[],
+        })
+      })
+      .catch(() => setJobsProfileError('Could not check your job-matching setup.'))
+  }, [githubUsername])
+
   // Fetches /api/jobs/matches (JM-9's grouped-by-repo shape). `refresh: true`
-  // bypasses the daily cache — used by the manual refresh button (JM-16),
-  // per-repo retry action (JM-14), and after a swap (JM-15) so the new
-  // candidate set is reflected immediately rather than waiting a day.
+  // bypasses the daily cache — used by the manual refresh button (JM-16) and
+  // the per-repo retry action (JM-14) so the candidate set is reflected
+  // immediately rather than waiting a day.
   const fetchJobMatches = useCallback((opts?: { refresh?: boolean }) => {
     setJobMatchesError('')
     if (opts?.refresh) setJobMatchesRefreshing(true)
@@ -458,38 +436,30 @@ export default function ProfilePage() {
       .finally(() => setJobMatchesRefreshing(false))
   }, [])
 
+  // Only pull matches (the old live-compute path, unchanged by issue #15 —
+  // see #17) once onboarding is actually done; otherwise the user is still
+  // on the confirm screen and there's nothing meaningful to show yet.
   useEffect(() => {
     if (view !== 'jobs' || !githubUsername || jobMatchGroups !== null) return
+    if (!jobsProfile?.onboarded) return
     fetchJobMatches()
-  }, [view, githubUsername, jobMatchGroups, fetchJobMatches])
+  }, [view, githubUsername, jobMatchGroups, jobsProfile, fetchJobMatches])
 
-  // Swap action (JM-15): persists the override, then forces a full
-  // re-fetch so the new candidate set (not yesterday's cache) is reflected.
-  // There's no per-position patch endpoint — this calls the same
-  // repo-overrides POST described in the task brief with the chosen repo
-  // and this section's position.
-  const handleSwap = useCallback(
-    async (position: number, repoName: string) => {
-      if (!githubUsername) return
-      setSwapSubmitting(true)
-      setJobMatchesError('')
-      try {
-        const res = await fetch('/api/jobs/repo-overrides', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo_full_name: `${githubUsername}/${repoName}`, position }),
-        })
-        if (!res.ok) throw new Error()
-        setSwapOpenFor(null)
-        await fetchJobMatches({ refresh: true })
-      } catch {
-        setJobMatchesError('Could not swap that repo in — try again.')
-      } finally {
-        setSwapSubmitting(false)
-      }
-    },
-    [githubUsername, fetchJobMatches]
-  )
+  // Onboarding confirm screen (issue #15). `jobsConfirmScreenMode` derives
+  // straight from state rather than being tracked separately: an
+  // unonboarded user is always shown the onboarding flow (nothing to
+  // toggle), while 'edit' is an explicit, dismissible re-entry via the
+  // "Edit my projects" affordance.
+  const jobsConfirmScreenMode: 'onboarding' | 'edit' | null =
+    jobsConfirmMode === 'edit' ? 'edit' : jobsProfile && !jobsProfile.onboarded ? 'onboarding' : null
+
+  const openEditProjects = useCallback(() => setJobsConfirmMode('edit'), [])
+  const cancelEditProjects = useCallback(() => setJobsConfirmMode(null), [])
+
+  const handleJobsProfileConfirmed = useCallback((repoNames: string[]) => {
+    setJobsProfile((prev) => ({ onboarded: true, status: prev?.status ?? 'active', repoNames }))
+    setJobsConfirmMode(null)
+  }, [])
 
   const openDetail = (s: SavedScore) => { setSelected(s); setView('detail') }
   const rescan     = (s: SavedScore) => router.push(`/generate?repo=${encodeURIComponent(s.repo_url)}`)
@@ -805,18 +775,29 @@ export default function ProfilePage() {
               <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
                 <div>
                   <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">My job postings</h1>
-                  <p className="mt-1 text-sm text-[#687386]">{jobsHeaderCopy(jobMatchGroups)}</p>
+                  <p className="mt-1 text-sm text-[#687386]">
+                    {jobsConfirmScreenMode ? 'One-time setup — confirm the projects that represent you.' : jobsHeaderCopy(jobMatchGroups)}
+                  </p>
                 </div>
-                {githubUsername && (
-                  <button
-                    type="button"
-                    onClick={() => fetchJobMatches({ refresh: true })}
-                    disabled={jobMatchesRefreshing}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-2 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
-                    {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
-                  </button>
+                {githubUsername && jobsProfile?.onboarded && !jobsConfirmScreenMode && (
+                  <div className="flex shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={openEditProjects}
+                      className="text-xs font-medium text-[#3D4A60] underline-offset-2 transition hover:text-[#7AA7FF] hover:underline"
+                    >
+                      Edit my projects
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchJobMatches({ refresh: true })}
+                      disabled={jobMatchesRefreshing}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-2 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
+                      {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -832,11 +813,16 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {githubUsername && jobMatchesError && jobMatchGroups !== null && (
-                <p className="mb-6 text-sm text-red-400">{jobMatchesError}</p>
+              {githubUsername && jobsProfileError && (
+                <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-6 py-16 text-center">
+                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
+                    <Briefcase className="h-4 w-4 text-red-400" />
+                  </span>
+                  <p className="text-sm font-medium text-red-400">{jobsProfileError}</p>
+                </div>
               )}
 
-              {githubUsername && jobMatchGroups === null && !jobMatchesError && (
+              {githubUsername && !jobsProfileError && jobsProfile === null && (
                 <div className="space-y-8">
                   {[...Array(3)].map((_, i) => (
                     <div key={i}>
@@ -854,58 +840,97 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {githubUsername && jobMatchGroups === null && jobMatchesError && (
-                <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-6 py-16 text-center">
-                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
-                    <Briefcase className="h-4 w-4 text-red-400" />
-                  </span>
-                  <p className="text-sm font-medium text-red-400">{jobMatchesError}</p>
-                  <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">Something went wrong loading your matched roles.</p>
-                  <button
-                    type="button"
-                    onClick={() => fetchJobMatches({ refresh: true })}
-                    disabled={jobMatchesRefreshing}
-                    className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
-                    {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
-                  </button>
-                </div>
+              {githubUsername && jobsProfile !== null && jobsConfirmScreenMode && (
+                <>
+                  {githubReposError && <p className="text-sm text-red-400">{githubReposError}</p>}
+                  {!githubReposError && githubRepos === null && (
+                    <div className="space-y-2">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="h-[60px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
+                      ))}
+                    </div>
+                  )}
+                  {!githubReposError && githubRepos !== null && (
+                    <JobsOnboardingConfirm
+                      mode={jobsConfirmScreenMode}
+                      githubRepos={githubRepos}
+                      initialRepoNames={jobsProfile.repoNames}
+                      onComplete={handleJobsProfileConfirmed}
+                      onCancel={jobsConfirmScreenMode === 'edit' ? cancelEditProjects : undefined}
+                    />
+                  )}
+                </>
               )}
 
-              {githubUsername && jobMatchGroups !== null && jobMatchGroups.length === 0 && (
-                <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
-                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
-                    <Briefcase className="h-4 w-4 text-[#3D4A60]" />
-                  </span>
-                  <p className="text-sm font-medium text-[#9AA3B5]">No eligible repos found yet.</p>
-                  <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">
-                    We match against active, non-fork public repos — push something and refresh.
-                  </p>
-                </div>
-              )}
+              {githubUsername && jobsProfile !== null && jobsProfile.onboarded && !jobsConfirmScreenMode && (
+                <>
+                  {jobMatchesError && jobMatchGroups !== null && (
+                    <p className="mb-6 text-sm text-red-400">{jobMatchesError}</p>
+                  )}
 
-              {githubUsername && jobMatchGroups !== null && jobMatchGroups.length > 0 && (
-                <div className="space-y-8">
-                  {jobMatchGroups.map((group, idx) => {
-                    const candidateNames = new Set(jobMatchGroups.map((g) => g.repoName))
-                    const swapCandidates = (githubRepos ?? []).filter((r) => !candidateNames.has(r.name))
-                    return (
-                      <RepoMatchSection
-                        key={group.repoName}
-                        group={group}
-                        githubUsername={githubUsername}
-                        swapCandidates={swapCandidates}
-                        swapOpen={swapOpenFor === group.repoName}
-                        swapSubmitting={swapSubmitting}
-                        onToggleSwap={() => setSwapOpenFor((cur) => (cur === group.repoName ? null : group.repoName))}
-                        onSwap={(repoName) => handleSwap(idx, repoName)}
-                        onRetry={() => fetchJobMatches({ refresh: true })}
-                        retrying={jobMatchesRefreshing}
-                      />
-                    )
-                  })}
-                </div>
+                  {jobMatchGroups === null && !jobMatchesError && (
+                    <div className="space-y-8">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i}>
+                          <div className="mb-3 h-4 w-32 animate-pulse rounded bg-[#1A2235]" />
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5">
+                              <div className="h-4 w-2/3 animate-pulse rounded bg-[#1A2235]" />
+                              <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-[#1A2235]" />
+                              <div className="mt-4 h-3 w-full animate-pulse rounded bg-[#1A2235]" />
+                              <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-[#1A2235]" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {jobMatchGroups === null && jobMatchesError && (
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-6 py-16 text-center">
+                      <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
+                        <Briefcase className="h-4 w-4 text-red-400" />
+                      </span>
+                      <p className="text-sm font-medium text-red-400">{jobMatchesError}</p>
+                      <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">Something went wrong loading your matched roles.</p>
+                      <button
+                        type="button"
+                        onClick={() => fetchJobMatches({ refresh: true })}
+                        disabled={jobMatchesRefreshing}
+                        className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
+                        {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
+                      </button>
+                    </div>
+                  )}
+
+                  {jobMatchGroups !== null && jobMatchGroups.length === 0 && (
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
+                      <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
+                        <Briefcase className="h-4 w-4 text-[#3D4A60]" />
+                      </span>
+                      <p className="text-sm font-medium text-[#9AA3B5]">No eligible repos found yet.</p>
+                      <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">
+                        We match against active, non-fork public repos — push something and refresh.
+                      </p>
+                    </div>
+                  )}
+
+                  {jobMatchGroups !== null && jobMatchGroups.length > 0 && (
+                    <div className="space-y-8">
+                      {jobMatchGroups.map((group) => (
+                        <RepoMatchSection
+                          key={group.repoName}
+                          group={group}
+                          githubUsername={githubUsername}
+                          onRetry={() => fetchJobMatches({ refresh: true })}
+                          retrying={jobMatchesRefreshing}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
