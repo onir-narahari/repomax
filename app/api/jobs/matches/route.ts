@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { fetchUserRepos } from '@/lib/github'
-import { matchJobsForRepos, fetchCandidateRepoContexts, resolveCandidateRepoNames } from '@/lib/job-matching'
-import type { JobMatch, JobPosting, GitHubUserRepo } from '@/types'
+import type { JobMatch, JobPosting } from '@/types'
 
-export const maxDuration = 60
+// Single fast DB read now (issue #17) — no GitHub fetch, no LLM call — so the
+// old 60s budget for the live-compute path is way more than this needs.
+export const maxDuration = 15
 
 interface JobPostingRow {
   id: string
@@ -27,11 +27,12 @@ interface MatchRow {
   job_postings: JobPostingRow | JobPostingRow[] | null
 }
 
-type FetchStatus = 'ok' | 'failed'
-
 interface RepoMatchGroup {
   repoName: string
-  fetchStatus: FetchStatus
+  // No more per-repo live GitHub fetch that can fail — matches are read
+  // straight from precomputed rows. Kept in the shape (always 'ok') so the
+  // existing frontend types/rendering don't need a breaking change.
+  fetchStatus: 'ok'
   matches: Array<{
     title: string
     company: string
@@ -40,6 +41,7 @@ interface RepoMatchGroup {
     reason: string
     url: string
     matchRank: number
+    postedAt: string | null
   }>
 }
 
@@ -69,15 +71,13 @@ function rowToMatch(row: MatchRow): JobMatch | null {
   }
 }
 
-// Groups a flat match list (from the LLM pipeline or from the DB cache) into
-// one section per candidate repo, in candidate order, so every candidate
-// repo appears even with zero matches (JM-9) — the UI can render a "no
-// strong match yet" or retry state per section in a later wave.
-function buildGroupedResponse(
-  candidateNames: string[],
-  matches: JobMatch[],
-  statusByRepoName: Map<string, FetchStatus>
-): RepoMatchGroup[] {
+// Groups today's flat match list into one section per committed repo, in
+// committed-repo order, so every repo appears even with zero matches today
+// (docs/prd-job-matching.md §14) — the UI renders a "no strong match yet"
+// state per section. Sorted by matchRank ascending within a repo, which is
+// already relevance-leads/recency-nudges order from the matching engine
+// (§8.3 step 4) — no separate re-sort needed for "newest-relevant first".
+function buildGroupedResponse(candidateNames: string[], matches: JobMatch[]): RepoMatchGroup[] {
   const matchesByRepo = new Map<string, JobMatch[]>()
   for (const m of matches) {
     const arr = matchesByRepo.get(m.matchedRepoName) ?? []
@@ -87,7 +87,7 @@ function buildGroupedResponse(
 
   return candidateNames.map((repoName) => ({
     repoName,
-    fetchStatus: statusByRepoName.get(repoName) ?? 'ok',
+    fetchStatus: 'ok' as const,
     matches: (matchesByRepo.get(repoName) ?? [])
       .slice()
       .sort((a, b) => a.matchRank - b.matchRank)
@@ -99,14 +99,20 @@ function buildGroupedResponse(
         reason: m.matchReason,
         url: m.jobPosting.absoluteUrl,
         matchRank: m.matchRank,
+        postedAt: m.jobPosting.postedAt,
       })),
   }))
 }
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const forceRefresh = searchParams.get('refresh') === '1'
-
+// DB-only read path (issue #17, docs/prd-job-matching.md §9 & §14): all the
+// expensive work (GitHub fetches, embeddings, LLM rerank) already happened
+// at onboarding / the 8am cron (lib/matching-engine.ts's
+// computeMatchesForUser), which wrote today's rows. This route only ever
+// reads them — a single DB query, so the page loads instantly. `?refresh=1`
+// (still sent by the frontend's "Refresh matches" button) is a harmless
+// no-op: there's no live recompute to trigger anymore, so it just re-runs
+// this same cheap read.
+export async function GET() {
   const supabase = await createClient()
   const {
     data: { user },
@@ -120,125 +126,38 @@ export async function GET(request: Request) {
   const admin = createAdminClient()
   const today = new Date().toISOString().slice(0, 10)
 
-  let repos: GitHubUserRepo[]
-  try {
-    repos = await fetchUserRepos(username)
-  } catch {
-    return NextResponse.json({ error: 'GITHUB_ERROR' }, { status: 502 })
+  // Candidate repos are the user's committed set from onboarding (issue
+  // #14's profile build), not a live GitHub fetch + selection pass.
+  const { data: profileRepos, error: profileReposError } = await admin
+    .from('user_job_profile_repos')
+    .select('repo_name')
+    .eq('user_id', user.id)
+
+  if (profileReposError) {
+    console.error('[RepoMax] user_job_profile_repos read failed:', profileReposError)
+    return NextResponse.json({ error: 'DB_ERROR' }, { status: 502 })
   }
 
-  const candidateNames = await resolveCandidateRepoNames(repos, username)
-
-  // Default (no ?refresh=1): serve today's cache if present, unchanged from
-  // prior behavior. Fetch status for a cache hit is read back from
-  // user_job_repo_status (persisted the last time this was freshly computed
-  // today) so a repo whose GitHub fetch actually failed still reports
-  // 'failed' on reload instead of always showing 'ok'. If that table has no
-  // row for a repo (e.g. computed before this table existed) — or the table
-  // doesn't exist at all because migration 0003 hasn't been applied yet —
-  // fall back to 'ok', same as prior behavior.
-  if (!forceRefresh) {
-    const { data: existing } = await admin
-      .from('user_job_matches')
-      .select('matched_repo_name, match_reason, match_rank, job_postings(*)')
-      .eq('user_id', user.id)
-      .eq('match_date', today)
-      .order('match_rank', { ascending: true })
-
-    if (existing && existing.length > 0) {
-      const matches = (existing as unknown as MatchRow[]).map(rowToMatch).filter((m): m is JobMatch => m !== null)
-      const statuses = new Map<string, FetchStatus>(candidateNames.map((name) => [name, 'ok']))
-      try {
-        const { data: statusRows, error: statusError } = await admin
-          .from('user_job_repo_status')
-          .select('repo_name, fetch_status')
-          .eq('user_id', user.id)
-          .eq('match_date', today)
-        if (statusError) {
-          console.error('[RepoMax] user_job_repo_status read failed:', statusError)
-        } else {
-          for (const row of (statusRows as Array<{ repo_name: string; fetch_status: FetchStatus }> | null) ?? []) {
-            if (statuses.has(row.repo_name)) statuses.set(row.repo_name, row.fetch_status)
-          }
-        }
-      } catch (err) {
-        console.error('[RepoMax] user_job_repo_status read threw:', err)
-      }
-      return NextResponse.json({ repos: buildGroupedResponse(candidateNames, matches, statuses) })
-    }
+  const candidateNames = ((profileRepos as Array<{ repo_name: string }> | null) ?? []).map((r) => r.repo_name)
+  if (candidateNames.length === 0) {
+    return NextResponse.json({ repos: [] })
   }
 
-  const { data: activePostingsRaw } = await admin.from('job_postings').select('*').eq('is_active', true).limit(500)
-  const activePostings = ((activePostingsRaw as JobPostingRow[] | null) ?? []).map(rowToJobPosting)
+  const { data: existing, error: matchesError } = await admin
+    .from('user_job_matches')
+    .select('matched_repo_name, match_reason, match_rank, job_postings(*)')
+    .eq('user_id', user.id)
+    .eq('match_date', today)
+    .order('match_rank', { ascending: true })
 
-  // Fetch each candidate repo's GitHub context exactly once, shared between
-  // the fetchStatus reported below (JM-8) and the matching pipeline itself —
-  // matchJobsForRepos consumes these same resolved contexts rather than
-  // re-fetching.
-  const candidateContexts = await fetchCandidateRepoContexts(repos, username)
-  const statusByRepoName = new Map<string, FetchStatus>(candidateContexts.map((c) => [c.repoName, c.status]))
-
-  // Best-effort persistence of today's per-repo fetch status so a later
-  // same-day cache-hit reload can report real 'failed' states instead of
-  // hardcoding 'ok'. This must never block returning match data — if the
-  // table doesn't exist yet (migration 0003 not applied), just log and
-  // move on.
-  if (candidateContexts.length > 0) {
-    try {
-      const { error: statusUpsertError } = await admin.from('user_job_repo_status').upsert(
-        candidateContexts.map((c) => ({
-          user_id: user.id,
-          match_date: today,
-          repo_name: c.repoName,
-          fetch_status: c.status,
-        })),
-        { onConflict: 'user_id,match_date,repo_name' }
-      )
-      if (statusUpsertError) console.error('[RepoMax] user_job_repo_status upsert failed:', statusUpsertError)
-    } catch (err) {
-      console.error('[RepoMax] user_job_repo_status upsert threw:', err)
-    }
+  if (matchesError) {
+    console.error('[RepoMax] user_job_matches read failed:', matchesError)
+    return NextResponse.json({ error: 'DB_ERROR' }, { status: 502 })
   }
 
-  if (activePostings.length === 0) {
-    return NextResponse.json({ repos: buildGroupedResponse(candidateNames, [], statusByRepoName) })
-  }
+  const matches = ((existing as unknown as MatchRow[] | null) ?? [])
+    .map(rowToMatch)
+    .filter((m): m is JobMatch => m !== null)
 
-  let matches: JobMatch[]
-  try {
-    matches = await matchJobsForRepos(candidateContexts, activePostings)
-  } catch (err) {
-    console.error('[RepoMax] job matching failed:', err)
-    return NextResponse.json({ error: 'MATCH_ERROR' }, { status: 502 })
-  }
-
-  // On a forced refresh, clear out today's previously cached rows first —
-  // otherwise a recompute that yields fewer matches than before would leave
-  // stale higher-ranked rows behind (upsert only overwrites conflicting
-  // ranks, it doesn't delete extras).
-  if (forceRefresh) {
-    const { error: deleteError } = await admin
-      .from('user_job_matches')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('match_date', today)
-    if (deleteError) console.error('[RepoMax] user_job_matches delete (refresh) failed:', deleteError)
-  }
-
-  if (matches.length > 0) {
-    const { error } = await admin.from('user_job_matches').upsert(
-      matches.map((m) => ({
-        user_id: user.id,
-        job_posting_id: m.jobPosting.id,
-        matched_repo_name: m.matchedRepoName,
-        match_reason: m.matchReason,
-        match_rank: m.matchRank,
-        match_date: today,
-      })),
-      { onConflict: 'user_id,match_date,match_rank' }
-    )
-    if (error) console.error('[RepoMax] user_job_matches upsert failed:', error)
-  }
-
-  return NextResponse.json({ repos: buildGroupedResponse(candidateNames, matches, statusByRepoName) })
+  return NextResponse.json({ repos: buildGroupedResponse(candidateNames, matches) })
 }
