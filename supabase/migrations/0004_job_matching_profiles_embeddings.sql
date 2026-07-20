@@ -15,9 +15,14 @@ create table if not exists user_job_profile (
 
 alter table user_job_profile enable row level security;
 
+-- Read-only for the authenticated user — writes go through the service role
+-- (the profile-build API route), never directly from the client, so a
+-- profile is always produced by the LLM-distillation pipeline, not a raw
+-- client write.
 drop policy if exists "user_job_profile_own_rw" on user_job_profile;
-create policy "user_job_profile_own_rw" on user_job_profile
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "user_job_profile_own_read" on user_job_profile;
+create policy "user_job_profile_own_read" on user_job_profile
+  for select using (auth.uid() = user_id);
 
 -- One row per committed repo per user — what matching cosines against.
 -- Recomputed only when the user edits their repo set (not on a schedule).
@@ -38,9 +43,12 @@ create index if not exists user_job_profile_repos_user_idx on user_job_profile_r
 
 alter table user_job_profile_repos enable row level security;
 
+-- Read-only for the authenticated user, same reasoning as user_job_profile
+-- above — writes only via the service-role profile-build route.
 drop policy if exists "user_job_profile_repos_own_rw" on user_job_profile_repos;
-create policy "user_job_profile_repos_own_rw" on user_job_profile_repos
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "user_job_profile_repos_own_read" on user_job_profile_repos;
+create policy "user_job_profile_repos_own_read" on user_job_profile_repos
+  for select using (auth.uid() = user_id);
 
 -- Job postings get an embedding once at ingest, shared across all users —
 -- never recomputed per-user.
