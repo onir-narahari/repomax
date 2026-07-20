@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw } from 'lucide-react'
+import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw, Mail } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
 import ProfileButton from '@/components/ProfileButton'
@@ -436,7 +436,7 @@ export default function ProfilePage() {
 
   const navItems: NavItem[] = [
     { id: 'home', label: 'Home', Icon: Home, active: view === 'home', badge: null },
-    { id: 'past', label: 'Past Repos', Icon: Clock, active: view === 'past' || view === 'detail', badge: scores.length > 0 ? scores.length : null },
+    { id: 'past', label: 'Saved Repos', Icon: Clock, active: view === 'past' || view === 'detail', badge: scores.length > 0 ? scores.length : null },
     ...(githubUsername
       ? [{ id: 'repos' as View, label: 'My GitHub Repos', Icon: GithubIcon, active: view === 'repos', badge: githubRepos && githubRepos.length > 0 ? githubRepos.length : null }]
       : []),
@@ -652,10 +652,10 @@ export default function ProfilePage() {
 
               <div className="mb-8 flex items-end justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">Past repos</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">Saved repos</h1>
                   <p className="mt-1 text-sm text-[#687386]">
                     {loading ? 'Loading…' : scores.length === 0
-                      ? 'Your saved scores live here.'
+                      ? 'No repos saved yet.'
                       : (() => {
                           const avg = averageScore(scores)
                           return avg !== null
@@ -823,6 +823,11 @@ export default function ProfilePage() {
 
               {githubUsername && jobsProfile !== null && jobsProfile.onboarded && !jobsConfirmScreenMode && (
                 <>
+                  <div className="mb-6 flex items-center gap-2.5 rounded-lg border border-[#7AA7FF]/15 bg-[#7AA7FF]/[0.04] px-4 py-2.5 text-xs text-[#9AA3B5]">
+                    <Mail className="h-3.5 w-3.5 shrink-0 text-[#7AA7FF]" />
+                    Your top 3 matches are emailed to you every day at 8:00 AM. This page always shows today&apos;s set.
+                  </div>
+
                   {jobMatchesError && jobMatchGroups !== null && (
                     <p className="mb-6 text-sm text-red-400">{jobMatchesError}</p>
                   )}
@@ -921,7 +926,7 @@ export default function ProfilePage() {
                     onClick={() => { setView('past'); setSelected(null) }}
                     className="mb-3 flex items-center gap-1.5 text-xs text-[#687386] transition hover:text-[#F5F3EA]"
                   >
-                    <ArrowLeft className="h-3.5 w-3.5" /> Past Repos
+                    <ArrowLeft className="h-3.5 w-3.5" /> Saved Repos
                   </button>
                   <p className="font-mono text-lg font-semibold text-[#F5F3EA]">{selected.repo_name}</p>
                   <p className="mt-0.5 text-xs text-[#3D4A60]">Scored {fmtDate(selected.created_at)}</p>

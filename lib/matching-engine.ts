@@ -473,7 +473,7 @@ You'll be given a pre-shortlisted list of candidate (repo, posting) pairs, alrea
 
 Order the genuinely strong pairs best-first. Every repo name that appears in the candidate list must have at least one entry in your response — pick its single best available pairing even when the overlap is only tenuous, and score that honestly (well under 50) rather than either inflating it or omitting the repo entirely. Beyond that one guaranteed pairing per repo, drop any other candidate whose overlap is only tenuous or generic — it's correct to return fewer than the full list for a repo's extra slots, just never zero for a repo that had candidates at all.
 
-For each pair you keep, write one concise, specific sentence naming the repo it's grounded in and what actually overlaps with the posting. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. Score confidence honestly (0-100) — a genuinely strong match should score high, a tenuous one should score low; never adjust the score to make a pairing look more or less fit-for-purpose than it is.`
+For each pair you keep, write one concise, specific sentence naming the repo it's grounded in and what actually overlaps with the posting. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. Do not use a hyphen or em dash anywhere in that sentence; use a period or comma instead. Score confidence honestly (0-100): a genuinely strong match should score high, a tenuous one should score low; never adjust the score to make a pairing look more or less fit-for-purpose than it is.`
 
 async function rerankTopCandidates(
   candidates: RerankCandidateInput[],
@@ -576,7 +576,7 @@ export function fallbackForUnrepresentedRepos(
     fallbacks.push({
       jobPostingId: c.jobPostingId,
       matchedRepoName: c.matchedRepoName,
-      matchReason: `Closest available role for ${c.matchedRepoName} in today's job pool — no stronger overlap found.`,
+      matchReason: `Closest available role for ${c.matchedRepoName} in today's job pool. No stronger overlap found yet.`,
       confidence: null,
     })
   }
