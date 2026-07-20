@@ -1,14 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Zap, Plus, Check, Menu, Briefcase, X, RefreshCw, Mail } from 'lucide-react'
+import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Plus, Check, Menu, Briefcase, X, RefreshCw, Mail, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
 import ProfileButton from '@/components/ProfileButton'
 import OutputTabs from '@/components/OutputTabs'
 import JobsOnboardingConfirm from '@/components/JobsOnboardingConfirm'
+import Sparkline from '@/components/Sparkline'
 import { LANGUAGE_COLORS, fmtUpdated } from '@/components/GitHubRepoPicker'
 import type { AnalyzeResponse, GitHubUserRepo } from '@/types'
 import type { User } from '@supabase/supabase-js'
@@ -78,15 +79,6 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function scoreAccent(n: number | null) {
-  if (n === null) return { text: 'text-[#687386]', badge: 'bg-[#111827] text-[#687386] border-[#1E2A3D]', box: 'bg-[#111827] border-[#1E2A3D]' }
-  if (n >= 90) return { text: 'text-emerald-400', badge: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20', box: 'bg-emerald-500/10 border-emerald-500/25' }
-  if (n >= 80) return { text: 'text-blue-400', badge: 'bg-blue-400/10 text-blue-400 border-blue-400/20', box: 'bg-blue-500/10 border-blue-500/25' }
-  if (n >= 70) return { text: 'text-amber-400', badge: 'bg-amber-400/10 text-amber-400 border-amber-400/20', box: 'bg-amber-500/10 border-amber-500/25' }
-  if (n >= 60) return { text: 'text-orange-400', badge: 'bg-orange-400/10 text-orange-400 border-orange-400/20', box: 'bg-orange-500/10 border-orange-500/25' }
-  return { text: 'text-red-400', badge: 'bg-red-400/10 text-red-400 border-red-400/20', box: 'bg-red-500/10 border-red-500/25' }
-}
-
 function continueScoreText(n: number | null) {
   if (n === null) return 'text-[#687386]'
   if (n >= 90) return 'text-emerald-400'
@@ -96,12 +88,34 @@ function continueScoreText(n: number | null) {
   return 'text-red-400'
 }
 
-function pastRepoScoreAccent(n: number | null) {
-  if (n !== null && n >= 80) {
-    return { text: 'text-[#22C55E]', badge: 'bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/25' }
-  }
-  const accent = scoreAccent(n)
-  return { text: accent.text, badge: accent.badge }
+// Three-tier system for the Repos Scored dashboard (rail color, chip, and
+// sparkline tone all key off this) — deliberately coarser than scoreAccent's
+// five bands above, since a rail/chip only needs to answer "does this repo
+// need attention or not," not show the full gradient.
+type Tier = 'green' | 'blue' | 'amber' | 'muted'
+
+function tierMeta(n: number | null): { tone: Tier; name: string } {
+  if (n === null) return { tone: 'muted', name: 'Unscored' }
+  if (n >= 80) return { tone: 'green', name: 'Strong' }
+  if (n >= 60) return { tone: 'blue', name: 'Good' }
+  return { tone: 'amber', name: 'Needs attention' }
+}
+
+const TIER_CLASSES: Record<Tier, { rail: string; chip: string; text: string; glow: string }> = {
+  green: { rail: 'bg-[#22C55E]', chip: 'border-[#22C55E]/25 bg-[#22C55E]/10 text-[#22C55E]', text: 'text-[#22C55E]', glow: 'hover:shadow-[0_16px_36px_-18px_rgba(34,197,94,0.45)]' },
+  blue: { rail: 'bg-[#7AA7FF]', chip: 'border-[#7AA7FF]/25 bg-[#7AA7FF]/10 text-[#7AA7FF]', text: 'text-[#7AA7FF]', glow: 'hover:shadow-[0_16px_36px_-18px_rgba(122,167,255,0.45)]' },
+  amber: { rail: 'bg-[#F59E0B]', chip: 'border-[#F59E0B]/25 bg-[#F59E0B]/10 text-[#F59E0B]', text: 'text-[#F59E0B]', glow: 'hover:shadow-[0_16px_36px_-18px_rgba(245,158,11,0.45)]' },
+  muted: { rail: 'bg-[#3D4A60]', chip: 'border-[#1E2A3D] bg-[#111827] text-[#687386]', text: 'text-[#687386]', glow: '' },
+}
+
+// Days-since-update bucket used for the "worth scoring right now" freshness
+// dot on unscored GitHub repos — recency is the only signal we have before
+// a repo's been scanned at all.
+function freshnessTone(iso: string): Tier {
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000
+  if (days < 7) return 'green'
+  if (days < 30) return 'blue'
+  return 'muted'
 }
 
 // Every match now always shows — the confidence gate only decides how it's
@@ -121,10 +135,54 @@ function matchFitTier(confidence: number | null) {
   return { label: 'Possible fit', className: 'border-[#1E2A3D] bg-[#111827] text-[#687386]' }
 }
 
-function averageScore(scores: SavedScore[]) {
-  const scored = scores.filter((s) => s.score !== null)
-  if (!scored.length) return null
-  return Math.round(scored.reduce((sum, s) => sum + (s.score ?? 0), 0) / scored.length)
+// One repo's full scan history, derived client-side from the flat `scores`
+// rows (one row per scan) — no schema change needed to get a trend line.
+interface RepoHistory {
+  repoUrl: string
+  repoName: string
+  latest: SavedScore
+  history: number[] // non-null scores, oldest → newest
+  delta: number | null // latest - first, only set with 2+ scored scans
+  scanCount: number
+}
+
+function buildRepoHistories(scores: SavedScore[]): RepoHistory[] {
+  const byRepo = new Map<string, SavedScore[]>()
+  for (const s of scores) {
+    const bucket = byRepo.get(s.repo_url)
+    if (bucket) bucket.push(s)
+    else byRepo.set(s.repo_url, [s])
+  }
+
+  const histories: RepoHistory[] = []
+  for (const [repoUrl, rows] of byRepo) {
+    const sorted = [...rows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    const latest = sorted[sorted.length - 1]
+    const history = sorted.map((r) => r.score).filter((n): n is number => n !== null)
+    const delta = history.length >= 2 ? history[history.length - 1] - history[0] : null
+    histories.push({ repoUrl, repoName: latest.repo_name, latest, history, delta, scanCount: sorted.length })
+  }
+
+  return histories.sort((a, b) => new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime())
+}
+
+function repoDashboardStats(histories: RepoHistory[]) {
+  const scored = histories.map((h) => h.latest.score).filter((n): n is number => n !== null)
+  const avg = scored.length ? Math.round(scored.reduce((sum, n) => sum + n, 0) / scored.length) : null
+  const mostImproved = histories
+    .filter((h) => h.delta !== null && h.delta > 0)
+    .sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))[0] ?? null
+  const needsAttention = histories.filter((h) => h.latest.score !== null && h.latest.score < 60).length
+  return { total: histories.length, avg, mostImproved, needsAttention }
+}
+
+// The single repo Home's "next fix" nudge points at — only surfaces one
+// that's genuinely below par (< 80) so a repo that's already strong never
+// gets an unwarranted "fix this" nudge.
+function lowestScoringHistory(histories: RepoHistory[]): RepoHistory | null {
+  const candidates = histories.filter((h) => h.latest.score !== null && h.latest.score < 80)
+  if (!candidates.length) return null
+  return candidates.sort((a, b) => (a.latest.score ?? 0) - (b.latest.score ?? 0))[0]
 }
 
 // ─── GitHub repo grid card ──────────────────────────────────────────────────────
@@ -151,42 +209,97 @@ function GithubRepoCard({ repo, onScore, accent = 'green' }: { repo: GitHubUserR
   )
 }
 
-// ─── Past repos grid ───────────────────────────────────────────────────────────
+// ─── Repos scored grid ──────────────────────────────────────────────────────────
 
-function PastRepoCard({ s, onOpen }: { s: SavedScore; onOpen: () => void }) {
-  const accent = pastRepoScoreAccent(s.score)
+function ScoredRepoCard({ rh, onOpen }: { rh: RepoHistory; onOpen: () => void }) {
+  const { tone, name } = tierMeta(rh.latest.score)
+  const cls = TIER_CLASSES[tone]
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="group flex w-full flex-col rounded-xl border border-[#22C55E]/25 bg-[#0D111C] p-5 text-left transition hover:border-[#22C55E]/45 hover:bg-[#0F1420]"
+      className={`group relative flex w-full flex-col overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5 pl-6 text-left transition hover:-translate-y-0.5 hover:border-[#334155] ${cls.glow}`}
     >
+      <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full ${cls.rail}`} />
+
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-baseline gap-1">
-          <span className={`text-3xl font-bold tabular-nums leading-none ${accent.text}`}>
-            {s.score ?? '—'}
-          </span>
+          <span className={`text-3xl font-bold tabular-nums leading-none ${cls.text}`}>{rh.latest.score ?? '—'}</span>
           <span className="text-sm text-[#3D4A60]">/100</span>
         </div>
-        <time className="text-xs tabular-nums text-[#3D4A60]" dateTime={s.created_at}>
-          {fmtDate(s.created_at)}
-        </time>
+        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cls.chip}`}>
+          {rh.latest.label ?? name}
+        </span>
       </div>
 
-      <p className="mt-4 truncate font-mono text-sm font-medium text-[#F5F3EA]">{s.repo_name}</p>
+      <div className="mt-3 h-9">
+        {rh.history.length > 0 ? (
+          <Sparkline points={rh.history} tone={tone} className="h-9 w-full" />
+        ) : (
+          <div className="h-px w-full bg-[#1E2A3D]" />
+        )}
+      </div>
 
-      {s.label && (
-        <span className={`mt-2 inline-flex w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${accent.badge}`}>
-          {s.label}
+      <p className="mt-3 truncate font-mono text-sm font-medium text-[#F5F3EA]">{rh.repoName}</p>
+
+      <p className="mt-1 text-xs text-[#687386]">
+        {rh.delta !== null ? (
+          rh.delta > 0 ? (
+            <span className="text-[#22C55E]">▲ +{rh.delta} all-time</span>
+          ) : rh.delta < 0 ? (
+            <span className="text-red-400">▼ {rh.delta} all-time</span>
+          ) : (
+            'No change since first scan'
+          )
+        ) : rh.scanCount > 1 ? (
+          'Flat across scans'
+        ) : (
+          'First scan · no trend yet'
+        )}
+      </p>
+
+      <div className="mt-4 flex items-center justify-between border-t border-[#1E2A3D] pt-3">
+        <time className="text-[11px] text-[#3D4A60]" dateTime={rh.latest.created_at}>
+          Scanned {fmtUpdated(rh.latest.created_at)}
+        </time>
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-[#9AA3B5] transition group-hover:text-[#F5F3EA]">
+          View
+          <ChevronRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
         </span>
-      )}
-
-      <span className="mt-5 inline-flex items-center gap-1 text-xs font-medium text-[#22C55E]/70 transition group-hover:text-[#22C55E]">
-        View score
-        <ChevronRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-      </span>
+      </div>
     </button>
+  )
+}
+
+// Stats strip above the Repos Scored grid — every number is derived from
+// the same `histories` the grid renders, nothing separately computed.
+function ScoredStatsStrip({ stats }: { stats: ReturnType<typeof repoDashboardStats> }) {
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#1E2A3D] sm:grid-cols-4">
+      <div className="bg-[#0D111C] px-4 py-3.5">
+        <p className="font-mono text-lg font-bold tabular-nums text-[#F5F3EA]">{stats.total}</p>
+        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">repos scored</p>
+      </div>
+      <div className="bg-[#0D111C] px-4 py-3.5">
+        <p className="font-mono text-lg font-bold tabular-nums text-[#F5F3EA]">{stats.avg ?? '—'}</p>
+        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">avg score</p>
+      </div>
+      <div className="bg-[#0D111C] px-4 py-3.5">
+        <p className="font-mono text-lg font-bold tabular-nums text-[#22C55E]">
+          {stats.mostImproved ? `+${stats.mostImproved.delta}` : '—'}
+        </p>
+        <p className="mt-0.5 truncate text-[10.5px] text-[#3D4A60]">
+          {stats.mostImproved ? `most improved · ${stats.mostImproved.repoName}` : 'not enough scans yet'}
+        </p>
+      </div>
+      <div className="bg-[#0D111C] px-4 py-3.5">
+        <p className={`font-mono text-lg font-bold tabular-nums ${stats.needsAttention > 0 ? 'text-[#F59E0B]' : 'text-[#F5F3EA]'}`}>
+          {stats.needsAttention}
+        </p>
+        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">needs attention</p>
+      </div>
+    </div>
   )
 }
 
@@ -288,7 +401,7 @@ function jobsHeaderCopy(groups: RepoMatchGroup[] | null): string {
   return `${totalMatches} role${totalMatches === 1 ? '' : 's'} across ${reposWithMatches} of your project${reposWithMatches === 1 ? '' : 's'}.`
 }
 
-function PastRepoGridSkeleton() {
+function RepoGridSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {[...Array(3)].map((_, i) => (
@@ -298,6 +411,89 @@ function PastRepoGridSkeleton() {
           <div className="mt-2 h-5 w-20 animate-pulse rounded-full bg-[#1A2235]" />
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─── First-time teasers (blurred dashboard preview) ─────────────────────────────
+// Shown instead of a plain "nothing here yet" box for brand-new accounts —
+// the real dashboard shape, blurred and clearly labeled as a preview, so the
+// payoff of scanning a repo is visible before the user has scanned one.
+
+const TEASER_REPOS: { name: string; score: number; history: number[]; tier: Tier }[] = [
+  { name: 'campus-marketplace', score: 91, history: [72, 78, 85, 91], tier: 'green' },
+  { name: 'resume-parser-ml', score: 64, history: [58, 60, 55, 64], tier: 'amber' },
+  { name: 'job-tracker-api', score: 78, history: [70, 74, 78], tier: 'blue' },
+  { name: 'discord-bot-utils', score: 83, history: [83], tier: 'blue' },
+]
+
+function ScoredDashboardTeaser({ onScan }: { onScan: () => void }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-[#1E2A3D]">
+      <div aria-hidden className="pointer-events-none select-none p-6 opacity-60 blur-[5px]">
+        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#1E2A3D] sm:grid-cols-4">
+          {[['4', 'repos scored'], ['79', 'avg score'], ['+19', 'most improved'], ['1', 'needs attention']].map(([v, l]) => (
+            <div key={l} className="bg-[#0D111C] px-4 py-3.5">
+              <p className="font-mono text-lg font-bold tabular-nums text-[#F5F3EA]">{v}</p>
+              <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">{l}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {TEASER_REPOS.map((r) => {
+            const cls = TIER_CLASSES[r.tier]
+            return (
+              <div key={r.name} className="relative overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5 pl-6">
+                <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full ${cls.rail}`} />
+                <div className="flex items-start justify-between gap-3">
+                  <span className={`text-3xl font-bold tabular-nums leading-none ${cls.text}`}>{r.score}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${cls.chip}`}>{tierMeta(r.score).name}</span>
+                </div>
+                <div className="mt-3 h-9">
+                  <Sparkline points={r.history} tone={r.tier} className="h-9 w-full" />
+                </div>
+                <p className="mt-3 truncate font-mono text-sm font-medium text-[#F5F3EA]">{r.name}</p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-[#080C18]/5 via-[#080C18]/60 to-[#080C18]/90 px-6 text-center">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[#1E2A3D] bg-[#0D111C]">
+          <Lock className="h-4 w-4 text-[#7AA7FF]" />
+        </span>
+        <p className="text-sm font-semibold text-[#F5F3EA]">This is your dashboard once you scan a repo</p>
+        <p className="max-w-xs text-xs text-[#687386]">Score trends, most-improved, what needs attention — all built from your real scans.</p>
+        <button
+          type="button"
+          onClick={onScan}
+          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#F5F3EA] px-4 py-2 text-sm font-semibold text-[#070A12] transition hover:bg-white"
+        >
+          Scan your first repo <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Small ghost version of the Continue banner for Home's empty state — sits
+// above the real "New Score" card, which stays the actual CTA, so this one
+// stays quiet (a caption, not a competing button).
+function ContinueBannerTeaser() {
+  return (
+    <div className="relative mb-4 overflow-hidden rounded-xl border border-[#1E2A3D]">
+      <div aria-hidden className="pointer-events-none flex select-none items-center gap-4 px-5 py-3.5 opacity-50 blur-[4px]">
+        <p className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-[#3D4A60]">Continue</p>
+        <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">your-repo-name</p>
+        <div className="ml-auto h-8 w-16">
+          <Sparkline points={[62, 70, 78, 91]} tone="green" className="h-8 w-full" />
+        </div>
+        <p className="shrink-0 text-lg font-bold text-[#22C55E]">91<span className="text-xs font-normal">/100</span></p>
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center bg-[#080C18]/50">
+        <p className="text-[11px] text-[#687386]">This is where your progress shows up →</p>
+      </div>
     </div>
   )
 }
@@ -355,6 +551,13 @@ export default function ProfilePage() {
   const initial   = username[0]?.toUpperCase() ?? '?'
   const hasScores = scores.length > 0
   const githubUsername = user?.app_metadata?.provider === 'github' ? (user.user_metadata?.user_name ?? null) : null
+
+  // One entry per distinct repo (not per scan) with its full score history —
+  // backs both the Repos Scored grid and Home's Continue banner/nudge, so
+  // trend + tier logic lives in one place.
+  const repoHistories = useMemo(() => buildRepoHistories(scores), [scores])
+  const scoredStats = useMemo(() => repoDashboardStats(repoHistories), [repoHistories])
+  const nudgeTarget = useMemo(() => lowestScoringHistory(repoHistories), [repoHistories])
 
   useEffect(() => {
     if (!githubUsername) return
@@ -436,7 +639,7 @@ export default function ProfilePage() {
 
   const navItems: NavItem[] = [
     { id: 'home', label: 'Home', Icon: Home, active: view === 'home', badge: null },
-    { id: 'past', label: 'Saved Repos', Icon: Clock, active: view === 'past' || view === 'detail', badge: scores.length > 0 ? scores.length : null },
+    { id: 'past', label: 'Repos Scored', Icon: Clock, active: view === 'past' || view === 'detail', badge: scores.length > 0 ? scores.length : null },
     ...(githubUsername
       ? [{ id: 'repos' as View, label: 'My GitHub Repos', Icon: GithubIcon, active: view === 'repos', badge: githubRepos && githubRepos.length > 0 ? githubRepos.length : null }]
       : []),
@@ -516,29 +719,45 @@ export default function ProfilePage() {
               {/* Header */}
               <div className="mb-6">
                 <h1 className="text-xl font-bold tracking-tight text-[#F5F3EA]">Your repo workspace</h1>
-                <p className="mt-1 text-sm text-[#687386]">Score new repos and revisit saved ones.</p>
+                <p className="mt-1 text-sm text-[#687386]">Score new repos and track how they improve.</p>
               </div>
 
-              {/* Continue where you left off — compact banner, not a competing action */}
-              {hasScores && (
+              {/* First-time state: ghost preview of what Continue looks like once there's data */}
+              {!hasScores && <ContinueBannerTeaser />}
+
+              {/* Continue where you left off — trend + delta, not just a static number */}
+              {hasScores && repoHistories[0] && (
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => openDetail(latest)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openDetail(latest) }}
-                  className="group mb-4 flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[#1E2A3D] bg-[#0D111C] px-5 py-3.5 transition hover:border-[#334155]"
+                  className="group relative mb-4 flex cursor-pointer items-center gap-4 overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#0D111C] px-5 py-3.5 pl-6 transition hover:border-[#334155]"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
+                  <span className="absolute inset-y-2.5 left-0 w-[3px] rounded-full bg-[#22C55E] shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <p className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-[#3D4A60]">Continue</p>
                     <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{latest.repo_name}</p>
-                    {latest.label && (
-                      <span className="hidden shrink-0 text-xs text-[#687386] sm:inline">{latest.label}</span>
-                    )}
                   </div>
+
+                  {repoHistories[0].history.length > 0 && (
+                    <div className="hidden h-8 w-20 shrink-0 sm:block">
+                      <Sparkline points={repoHistories[0].history} tone={tierMeta(latest.score).tone} className="h-8 w-full" />
+                    </div>
+                  )}
+
                   <div className="flex shrink-0 items-center gap-4">
-                    <p className={`text-lg font-bold tabular-nums leading-none ${continueScoreText(latest.score)}`}>
-                      {latest.score ?? '—'}<span className="text-xs font-normal text-[#3D4A60]">/100</span>
-                    </p>
+                    <div className="text-right">
+                      <p className={`text-lg font-bold tabular-nums leading-none ${continueScoreText(latest.score)}`}>
+                        {latest.score ?? '—'}<span className="text-xs font-normal text-[#3D4A60]">/100</span>
+                      </p>
+                      {repoHistories[0].delta !== null && repoHistories[0].delta !== 0 && (
+                        <p className={`mt-0.5 text-[10px] ${repoHistories[0].delta > 0 ? 'text-[#22C55E]' : 'text-red-400'}`}>
+                          {repoHistories[0].delta > 0 ? `▲ +${repoHistories[0].delta}` : `▼ ${repoHistories[0].delta}`} since last
+                        </p>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); rescan(latest) }}
@@ -550,20 +769,43 @@ export default function ProfilePage() {
                 </div>
               )}
 
+              {/* Next-fix nudge — names the lowest saved score and its actual #1 weakness */}
+              {hasScores && nudgeTarget && (() => {
+                const weakness = nudgeTarget.latest.result?.repoScore?.weaknesses?.[0]
+                if (!weakness) return null
+                return (
+                  <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/[0.06] px-4 py-3 text-xs leading-snug text-[#9AA3B5]">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.7)]" />
+                    <span>
+                      <span className="font-mono font-semibold text-[#F5F3EA]">{nudgeTarget.repoName}</span> is your lowest saved score ({nudgeTarget.latest.score}) — {weakness}{' '}
+                      <button
+                        type="button"
+                        onClick={() => openDetail(nudgeTarget.latest)}
+                        className="font-semibold text-[#F5F3EA] underline-offset-2 hover:underline"
+                      >
+                        Fix that first →
+                      </button>
+                    </span>
+                  </div>
+                )
+              })()}
+
               {/* Score a new repo — the one primary action on this screen */}
               {githubUsername ? (
-                <div className="rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7">
-                  <div className="flex items-center justify-between">
+                <div className="relative overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7">
+                  <div aria-hidden className="scan-sweep pointer-events-none absolute inset-0" />
+
+                  <div className="relative flex items-center justify-between">
                     <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
                       <Plus className="h-2.5 w-2.5" /> NEW SCORE
                     </span>
                     <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 font-mono text-[10px] text-[#7AA7FF]">@{githubUsername}</span>
                   </div>
 
-                  {githubReposError && <p className="mt-5 text-sm text-red-400">{githubReposError}</p>}
+                  {githubReposError && <p className="relative mt-5 text-sm text-red-400">{githubReposError}</p>}
 
                   {!githubReposError && githubRepos === null && (
-                    <div className="mt-5 space-y-2">
+                    <div className="relative mt-5 space-y-2">
                       {[...Array(3)].map((_, i) => (
                         <div key={i} className="h-[52px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
                       ))}
@@ -571,30 +813,36 @@ export default function ProfilePage() {
                   )}
 
                   {githubRepos !== null && githubRepos.length === 0 && (
-                    <p className="mt-5 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
+                    <p className="relative mt-5 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
                   )}
 
                   {githubRepos !== null && githubRepos.length > 0 && (
-                    <div className="mt-5 space-y-2">
-                      {githubRepos.slice(0, 3).map((repo) => (
-                        <button
-                          key={repo.name}
-                          type="button"
-                          onClick={() => scanRepo(repo.htmlUrl)}
-                          className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#22C55E]/40"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
-                            <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
-                              {repo.language && (
-                                <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
-                              )}
-                              <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
-                            </p>
-                          </div>
-                          <span className="shrink-0 rounded-lg bg-[#22C55E]/15 px-3 py-1.5 text-xs font-semibold text-[#22C55E]">Score →</span>
-                        </button>
-                      ))}
+                    <div className="relative mt-5 space-y-2">
+                      {githubRepos.slice(0, 3).map((repo) => {
+                        const fresh = TIER_CLASSES[freshnessTone(repo.updatedAt)]
+                        return (
+                          <button
+                            key={repo.name}
+                            type="button"
+                            onClick={() => scanRepo(repo.htmlUrl)}
+                            className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#22C55E]/40"
+                          >
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${fresh.rail}`} />
+                              <div className="min-w-0">
+                                <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
+                                <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
+                                  {repo.language && (
+                                    <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
+                                  )}
+                                  <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
+                                </p>
+                              </div>
+                            </div>
+                            <span className="shrink-0 rounded-lg bg-[#22C55E]/15 px-3 py-1.5 text-xs font-semibold text-[#22C55E]">Score →</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
 
@@ -602,7 +850,7 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => setView('repos')}
-                      className="mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[#7AA7FF] hover:text-[#9DBCFF]"
+                      className="relative mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[#7AA7FF] hover:text-[#9DBCFF]"
                     >
                       View all {githubRepos.length} repos →
                     </button>
@@ -613,6 +861,7 @@ export default function ProfilePage() {
                   href="/generate"
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7 transition hover:border-[#22C55E]/45 hover:bg-[#0C1510] sm:p-8"
                 >
+                  <div aria-hidden className="scan-sweep pointer-events-none absolute inset-0" />
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#22C55E]/[0.07] to-transparent" />
 
                   <div className="relative">
@@ -652,16 +901,15 @@ export default function ProfilePage() {
 
               <div className="mb-8 flex items-end justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">Saved repos</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#F5F3EA]">Repos scored</h1>
                   <p className="mt-1 text-sm text-[#687386]">
-                    {loading ? 'Loading…' : scores.length === 0
-                      ? 'No repos saved yet.'
-                      : (() => {
-                          const avg = averageScore(scores)
-                          return avg !== null
-                            ? `${scores.length} repo${scores.length === 1 ? '' : 's'} · ${avg} avg score`
-                            : `${scores.length} repo${scores.length === 1 ? '' : 's'}`
-                        })()}
+                    {loading
+                      ? 'Loading…'
+                      : scoredStats.total === 0
+                        ? 'No repos scored yet.'
+                        : scoredStats.avg !== null
+                          ? `${scoredStats.total} repo${scoredStats.total === 1 ? '' : 's'} · ${scoredStats.avg} avg score`
+                          : `${scoredStats.total} repo${scoredStats.total === 1 ? '' : 's'}`}
                   </p>
                 </div>
                 <Link
@@ -673,24 +921,18 @@ export default function ProfilePage() {
               </div>
 
               {loading ? (
-                <PastRepoGridSkeleton />
-              ) : scores.length === 0 ? (
-                <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
-                  <p className="text-sm text-[#9AA3B5]">No repos scored yet.</p>
-                  <p className="mt-1 text-xs text-[#3D4A60]">Paste a GitHub URL to get your first score.</p>
-                  <Link
-                    href="/generate"
-                    className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-[#F5F3EA] px-4 py-2 text-sm font-medium text-[#070A12] transition hover:bg-white"
-                  >
-                    Score a repo <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
+                <RepoGridSkeleton />
+              ) : scoredStats.total === 0 ? (
+                <ScoredDashboardTeaser onScan={() => router.push('/generate')} />
               ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {scores.map((s) => (
-                    <PastRepoCard key={s.id} s={s} onOpen={() => openDetail(s)} />
-                  ))}
-                </div>
+                <>
+                  <ScoredStatsStrip stats={scoredStats} />
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {repoHistories.map((rh) => (
+                      <ScoredRepoCard key={rh.repoUrl} rh={rh} onOpen={() => openDetail(rh.latest)} />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -715,7 +957,7 @@ export default function ProfilePage() {
 
               {githubReposError && <p className="text-sm text-red-400">{githubReposError}</p>}
 
-              {!githubReposError && githubRepos === null && <PastRepoGridSkeleton />}
+              {!githubReposError && githubRepos === null && <RepoGridSkeleton />}
 
               {githubRepos !== null && githubRepos.length === 0 && (
                 <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
@@ -926,7 +1168,7 @@ export default function ProfilePage() {
                     onClick={() => { setView('past'); setSelected(null) }}
                     className="mb-3 flex items-center gap-1.5 text-xs text-[#687386] transition hover:text-[#F5F3EA]"
                   >
-                    <ArrowLeft className="h-3.5 w-3.5" /> Saved Repos
+                    <ArrowLeft className="h-3.5 w-3.5" /> Repos Scored
                   </button>
                   <p className="font-mono text-lg font-semibold text-[#F5F3EA]">{selected.repo_name}</p>
                   <p className="mt-0.5 text-xs text-[#3D4A60]">Scored {fmtDate(selected.created_at)}</p>

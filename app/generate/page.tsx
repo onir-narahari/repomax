@@ -12,7 +12,6 @@ import ErrorBanner from '@/components/ErrorBanner'
 import AuthModal from '@/components/AuthModal'
 import ProfileButton from '@/components/ProfileButton'
 import GitHubRepoPicker from '@/components/GitHubRepoPicker'
-import type { SaveStatus } from '@/components/RepoScoreCard'
 import { createClient, oauthRedirectTo } from '@/lib/supabase'
 import { normalizeRepoUrl, validateRepoUrl } from '@/lib/repo-url'
 import type { AnalyzeResponse, AppErrorCode } from '@/types'
@@ -90,7 +89,6 @@ function GeneratePageContent() {
   const [githubUsername, setGithubUsername] = useState<string | null>(null)
   const [entryMode, setEntryMode] = useState<'url' | 'github'>('url')
   const [githubConnectLoading, setGithubConnectLoading] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const pendingActionRef = useRef<(() => void | Promise<void>) | null>(null)
 
   const supabase = createClient()
@@ -138,64 +136,42 @@ function GeneratePageContent() {
     return !!data
   }
 
-  const refreshSaveStatus = async (repoUrl: string, score: number | null) => {
-    if (score === null) {
-      setSaveStatus('unsaved')
-      return
-    }
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      setSaveStatus('unsaved')
-      return
-    }
-    setSaveStatus('checking')
-    const exists = await hasExistingSave(session.user.id, repoUrl, score)
-    setSaveStatus(exists ? 'saved' : 'unsaved')
-  }
-
-  const handleSaveScore = async () => {
-    if (state.status !== 'results' || saveStatus === 'saved' || saveStatus === 'saving' || saveStatus === 'checking') return
-    const score = state.data.repoScore
+  // Every scan a signed-in user runs lands in their Repos Scored dashboard
+  // automatically — no separate "Save Score" click required. Dedupes on
+  // (user, repo, score) so an identical rescan doesn't create a redundant
+  // history point; a changed score still gets its own row for the trend.
+  const autoSaveScore = async (repoUrl: string, data: AnalyzeResponse) => {
+    const score = data.repoScore
     if (!score) return
 
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      requireAuth(() => handleSaveScore())
-      return
-    }
+    if (!session) return
 
-    setSaveStatus('saving')
-    const exists = await hasExistingSave(session.user.id, submittedUrl, score.total)
-    if (exists) {
-      setSaveStatus('saved')
-      return
-    }
+    const exists = await hasExistingSave(session.user.id, repoUrl, score.total)
+    if (exists) return
 
     const { error } = await supabase.from('repo_scores').insert({
       user_id: session.user.id,
-      repo_url: submittedUrl,
-      repo_name: submittedUrl.replace('https://github.com/', ''),
+      repo_url: repoUrl,
+      repo_name: repoUrl.replace('https://github.com/', ''),
       score: score.total,
       label: score.label,
       summary: score.summary,
-      result: state.data,
+      result: data,
     })
 
     if (error) {
       posthog.captureException(error)
-      setSaveStatus('unsaved')
       return
     }
 
-    posthog.capture('repo_score_saved', { repo_url: submittedUrl, score: score.total })
-    setSaveStatus('saved')
+    posthog.capture('repo_score_saved', { repo_url: repoUrl, score: score.total })
   }
 
   const submitUrl = async (url: string) => {
     const normalized = normalizeRepoUrl(url)
     setSubmittedUrl(normalized)
     setState({ status: 'loading' })
-    setSaveStatus('idle')
     posthog.capture('repo_submitted', { repo_url: normalized })
     try {
       const res = await fetch('/api/analyze', {
@@ -218,7 +194,7 @@ function GeneratePageContent() {
       setHasScoredOnce(true)
       setUrlValue('')
       writeScanCache(normalized, data as AnalyzeResponse)
-      await refreshSaveStatus(normalized, (data as AnalyzeResponse).repoScore?.total ?? null)
+      await autoSaveScore(normalized, data as AnalyzeResponse)
     } catch (err) {
       posthog.captureException(err)
       posthog.capture('repo_score_failed', { error_code: 'UNKNOWN', repo_url: normalized })
@@ -246,7 +222,7 @@ function GeneratePageContent() {
       setState({ status: 'results', data: cached })
       setHasScoredOnce(true)
       setUrlValue('')
-      void refreshSaveStatus(normalized, cached.repoScore?.total ?? null)
+      void autoSaveScore(normalized, cached)
       return
     }
 
@@ -511,8 +487,6 @@ function GeneratePageContent() {
             isLoading={isLoading}
             isAuthed={isAuthed}
             onRequireAuth={requireAuth}
-            saveStatus={saveStatus}
-            onSaveScore={handleSaveScore}
           />
         </div>
       </div>

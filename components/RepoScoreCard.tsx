@@ -2,59 +2,12 @@
 
 import posthog from 'posthog-js'
 import { useState } from 'react'
-import { Bookmark, Check, ChevronDown } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import type { RepoScore, CategoryScore, MissingProofDetection, ProofClaim } from '@/types'
-
-export type SaveStatus = 'idle' | 'checking' | 'unsaved' | 'saving' | 'saved'
 
 interface Props {
   score: RepoScore
   repoUrl?: string
-  saveStatus?: SaveStatus
-  onSave?: () => void
-}
-
-function SaveScoreButton({ status, onClick }: { status: SaveStatus; onClick: () => void }) {
-  const isSaved = status === 'saved'
-  const isBusy = status === 'saving' || status === 'checking'
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isSaved || isBusy}
-      className={`flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#7AA7FF]/25 disabled:cursor-not-allowed ${
-        isSaved
-          ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-400'
-          : 'border-[#7AA7FF]/30 bg-[#7AA7FF]/15 text-[#7AA7FF] hover:border-[#7AA7FF]/50 hover:bg-[#7AA7FF]/25 disabled:opacity-60'
-      }`}
-    >
-      {isSaved ? (
-        <>
-          <Check className="h-3.5 w-3.5" />
-          Saved
-        </>
-      ) : isBusy ? (
-        <span className="flex items-center gap-2">
-          <span className="inline-flex gap-1" aria-hidden>
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="inline-block h-1 w-1 rounded-full bg-current opacity-70"
-                style={{ animation: 'dotPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}
-              />
-            ))}
-          </span>
-          Saving
-        </span>
-      ) : (
-        <>
-          <Bookmark className="h-3.5 w-3.5" />
-          Save Score
-        </>
-      )}
-    </button>
-  )
 }
 
 const CATEGORY_SHORT: Record<string, string> = {
@@ -197,7 +150,7 @@ function ClaimsVsEvidence({ proof, repoUrl }: { proof: MissingProofDetection; re
 
 // ─── Main card ────────────────────────────────────────────────────────────────
 
-export default function RepoScoreCard({ score, repoUrl, saveStatus, onSave }: Props) {
+export default function RepoScoreCard({ score, repoUrl }: Props) {
   const [showAllScores, setShowAllScores] = useState(false)
   const [showAllFixes, setShowAllFixes] = useState(false)
 
@@ -217,26 +170,21 @@ export default function RepoScoreCard({ score, repoUrl, saveStatus, onSave }: Pr
   return (
     <div className="overflow-hidden rounded-2xl border border-[#242B3A] bg-[#0D111C] shadow-[0_20px_48px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="border-b border-[#242B3A] px-6 py-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            {displayUrl && (
-              <p className="truncate font-mono text-xs text-[#687386]">{displayUrl}</p>
-            )}
-            <div className="mt-2 flex flex-wrap items-end gap-3">
-              <div className="flex items-baseline gap-1">
-                <span className={`text-5xl font-bold tabular-nums leading-none tracking-tight ${colors.text}`}>
-                  {score.total}
-                </span>
-                <span className="text-xl font-light text-[#687386]">/100</span>
-              </div>
-              <span className={`mb-1 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${colors.badge}`}>
-                {score.label}
-              </span>
-            </div>
-          </div>
-          {onSave && (
-            <SaveScoreButton status={saveStatus ?? 'idle'} onClick={onSave} />
+        <div className="min-w-0 flex-1">
+          {displayUrl && (
+            <p className="truncate font-mono text-xs text-[#687386]">{displayUrl}</p>
           )}
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <div className="flex items-baseline gap-1">
+              <span className={`text-5xl font-bold tabular-nums leading-none tracking-tight ${colors.text}`}>
+                {score.total}
+              </span>
+              <span className="text-xl font-light text-[#687386]">/100</span>
+            </div>
+            <span className={`mb-1 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${colors.badge}`}>
+              {score.label}
+            </span>
+          </div>
         </div>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#9AA3B5]">{score.summary}</p>
 
