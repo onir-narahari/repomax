@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { createAdminClient } from '@/lib/supabase-admin'
 import { buildUserJobProfile } from '@/lib/profile-build'
 
 // POST /api/jobs/profile — persists the authenticated user's confirmed repo
@@ -49,6 +50,60 @@ function parseRequestBody(body: unknown): ProfileRequestBody | null {
   if (!Array.isArray(repoNames)) return null
   if (!repoNames.every((n) => typeof n === 'string')) return null
   return { repoNames }
+}
+
+// GET /api/jobs/profile — companion read to the POST below. Tells the
+// onboarding confirm screen (issue #15) whether the user has already
+// onboarded and what they're currently committed to, so a returning user's
+// "Edit my projects" affordance can pre-populate from their real committed
+// set instead of the auto-picked default. Reads `user_job_profile` +
+// `user_job_profile_repos` via the admin client, same convention as the
+// other job routes (both tables are RLS read-only for the owning user, but
+// this route follows the existing codebase pattern of using the admin
+// client for consistency).
+export async function GET() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const username = user?.app_metadata?.provider === 'github' ? (user.user_metadata?.user_name as string | undefined) : undefined
+  if (!user || !username) {
+    return NextResponse.json({ error: 'NOT_GITHUB_CONNECTED' }, { status: 401 })
+  }
+
+  const admin = createAdminClient()
+
+  const { data: profileRow, error: profileError } = await admin
+    .from('user_job_profile')
+    .select('onboarded_at, status')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (profileError) {
+    console.error('[RepoMax] user_job_profile read failed:', profileError)
+    return NextResponse.json({ error: 'PROFILE_READ_ERROR' }, { status: 502 })
+  }
+
+  if (!profileRow) {
+    return NextResponse.json({ onboarded: false, status: 'active', repoNames: [] })
+  }
+
+  const { data: repoRows, error: reposError } = await admin
+    .from('user_job_profile_repos')
+    .select('repo_name')
+    .eq('user_id', user.id)
+
+  if (reposError) {
+    console.error('[RepoMax] user_job_profile_repos read failed:', reposError)
+    return NextResponse.json({ error: 'PROFILE_READ_ERROR' }, { status: 502 })
+  }
+
+  return NextResponse.json({
+    onboarded: profileRow.onboarded_at !== null,
+    status: (profileRow.status as 'active' | 'needs_reonboarding') ?? 'active',
+    repoNames: ((repoRows as Array<{ repo_name: string }> | null) ?? []).map((r) => r.repo_name),
+  })
 }
 
 export async function POST(request: Request) {
