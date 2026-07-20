@@ -11,14 +11,20 @@ import type { JobPosting } from '@/types'
 
 export const maxDuration = 60
 
-// Manually-triggered ingestion for now (curl this with the secret header).
-// Will be wired to a Vercel Cron job once the email-sending phase ships.
-export async function POST(req: NextRequest) {
-  const secret = process.env.JOB_REFRESH_SECRET
-  if (!secret || req.headers.get('x-refresh-secret') !== secret) {
-    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
-  }
+interface IngestResult {
+  ingested: number
+  embedded: number
+  deactivated: number
+}
 
+// Shared ingest body — fetch postings, upsert, deactivate anything stale.
+// Called by both entry points below (POST for manual/curl-triggered runs,
+// GET for the Vercel Cron-triggered frequent refresh) so the two never
+// drift. Returns either the summary or an error shape identical to what
+// each handler used to build inline.
+async function runIngest(): Promise<
+  { ok: true; result: IngestResult } | { ok: false; error: string; status: number }
+> {
   const startedAt = new Date()
 
   let postings: JobPosting[]
@@ -26,7 +32,7 @@ export async function POST(req: NextRequest) {
     postings = await fetchCuratedJobPostings()
   } catch (err) {
     console.error('[RepoMax] job ingestion fetch failed:', err)
-    return NextResponse.json({ error: 'INGEST_FAILED' }, { status: 502 })
+    return { ok: false, error: 'INGEST_FAILED', status: 502 }
   }
 
   const admin = createAdminClient()
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
   // the deactivate-stale-rows step below, which would otherwise mark every
   // active posting stale.
   if (postings.length === 0) {
-    return NextResponse.json({ ingested: 0, embedded: 0, deactivated: 0 })
+    return { ok: true, result: { ingested: 0, embedded: 0, deactivated: 0 } }
   }
 
   // Only embed postings that are new, or already embedded but stale — skip
@@ -114,7 +120,7 @@ export async function POST(req: NextRequest) {
     )
     if (error) {
       console.error('[RepoMax] job_postings upsert (with embedding) failed:', error)
-      return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+      return { ok: false, error: 'DB_ERROR', status: 500 }
     }
   }
 
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest) {
       .upsert(withoutEmbedding.map(baseRow), { onConflict: 'source,external_id' })
     if (error) {
       console.error('[RepoMax] job_postings upsert (without embedding) failed:', error)
-      return NextResponse.json({ error: 'DB_ERROR' }, { status: 500 })
+      return { ok: false, error: 'DB_ERROR', status: 500 }
     }
   }
 
@@ -140,9 +146,52 @@ export async function POST(req: NextRequest) {
     console.error('[RepoMax] job_postings deactivate failed:', deactivateError)
   }
 
-  return NextResponse.json({
-    ingested: postings.length,
-    embedded: withEmbedding.length,
-    deactivated: deactivated?.length ?? 0,
-  })
+  return {
+    ok: true,
+    result: {
+      ingested: postings.length,
+      embedded: withEmbedding.length,
+      deactivated: deactivated?.length ?? 0,
+    },
+  }
+}
+
+// Manually-triggered ingestion (curl this with the secret header). Unchanged
+// from before — auth and behavior are exactly as they were.
+export async function POST(req: NextRequest) {
+  const secret = process.env.JOB_REFRESH_SECRET
+  if (!secret || req.headers.get('x-refresh-secret') !== secret) {
+    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+  }
+
+  const outcome = await runIngest()
+  if (!outcome.ok) {
+    return NextResponse.json({ error: outcome.error }, { status: outcome.status })
+  }
+  return NextResponse.json(outcome.result)
+}
+
+// Cron-triggered ingestion (see vercel.json's frequent `crons` entry for this
+// path). Vercel Cron Jobs only ever send a plain GET request — there is no
+// way to configure a custom header (like x-refresh-secret above) on a
+// Vercel-triggered invocation. Vercel's own mechanism instead: when a
+// `CRON_SECRET` env var is set on the project, Vercel automatically attaches
+// `Authorization: Bearer <CRON_SECRET>` to the request it fires for a
+// scheduled cron. So this GET handler checks that header instead of
+// x-refresh-secret — same shared-secret idea, different header because of
+// this platform constraint, not a missed instruction. Note that a
+// sub-daily schedule for this route requires a Vercel Pro plan or above —
+// on Hobby, Vercel caps Cron Jobs to once per day regardless of the
+// schedule configured in vercel.json.
+export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET
+  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+  }
+
+  const outcome = await runIngest()
+  if (!outcome.ok) {
+    return NextResponse.json({ error: outcome.error }, { status: outcome.status })
+  }
+  return NextResponse.json(outcome.result)
 }
