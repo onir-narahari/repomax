@@ -31,6 +31,7 @@ interface RepoJobMatch {
   reason: string
   url: string
   matchRank: number
+  postedAt: string | null
 }
 
 // One section of the grouped jobs view — always present for every candidate
@@ -211,9 +212,16 @@ function JobMatchCard({ m }: { m: RepoJobMatch }) {
             {m.location ? ` · ${m.location}` : ''}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2 py-0.5 text-[10px] font-bold text-[#22C55E]">
-          #{m.matchRank}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {m.postedAt && (
+            <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 text-[10px] text-[#687386]">
+              Posted {fmtUpdated(m.postedAt)}
+            </span>
+          )}
+          <span className="rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2 py-0.5 text-[10px] font-bold text-[#22C55E]">
+            #{m.matchRank}
+          </span>
+        </div>
       </div>
 
       {m.techTags.length > 0 && (
