@@ -127,7 +127,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'GITHUB_ERROR' }, { status: 502 })
   }
 
-  const candidateNames = await resolveCandidateRepoNames(repos, user.id)
+  const candidateNames = await resolveCandidateRepoNames(repos, username)
 
   // Default (no ?refresh=1): serve today's cache if present, unchanged from
   // prior behavior. Fetch status for a cache hit is read back from
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
   // the fetchStatus reported below (JM-8) and the matching pipeline itself —
   // matchJobsForRepos consumes these same resolved contexts rather than
   // re-fetching.
-  const candidateContexts = await fetchCandidateRepoContexts(repos, user.id)
+  const candidateContexts = await fetchCandidateRepoContexts(repos, username)
   const statusByRepoName = new Map<string, FetchStatus>(candidateContexts.map((c) => [c.repoName, c.status]))
 
   // Best-effort persistence of today's per-repo fetch status so a later
