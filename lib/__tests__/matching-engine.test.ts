@@ -5,10 +5,17 @@ import {
   cosineSimilarity,
   dedupeByHighestScoringRepo,
   dropSeen,
+  fallbackForUnrepresentedRepos,
+  gateMatches,
   parseEmbedding,
   rankCandidates,
   recencyBoost,
+  restoreRepoFloorIfFullySeen,
   retrieveTopCandidates,
+  selectForRerank,
+  selectOneMatchPerRepo,
+  DISPLAY_TOTAL_CAP,
+  MIN_CANDIDATES_PER_REPO,
   RECENCY_BOOST_STALE,
   RECENCY_BOOST_UNDER_7D,
   RECENCY_BOOST_UNDER_14D,
@@ -73,6 +80,106 @@ describe('retrieveTopCandidates', () => {
     expect(result).toHaveLength(2)
     expect(result.map((r) => r.matchedRepoName).sort()).toEqual(['repo-a', 'repo-c'])
   })
+
+  it('never crowds a repo out of the pool even when another repo dominates every top score (2026-07-20 fix)', () => {
+    // repo-strong scores near-perfectly against every job; repo-weak scores
+    // low against all of them but is not zero — a real, if less obvious, fit.
+    const repos = [
+      { repoName: 'repo-strong', embedding: [1, 0] },
+      { repoName: 'repo-weak', embedding: [0.6, 0.1] },
+    ]
+    const manyJobs = Array.from({ length: 20 }, (_, i) => ({
+      jobPostingId: `job-${i}`,
+      embedding: [0.99, 0.01],
+      postedAt: null,
+    }))
+    // A flat top-N cut (N=5) would fill entirely from repo-strong, since its
+    // similarity beats repo-weak's against every single job.
+    const result = retrieveTopCandidates(repos, manyJobs, 5)
+    expect(result.some((r) => r.matchedRepoName === 'repo-weak')).toBe(true)
+  })
+
+  it('reserves exactly MIN_CANDIDATES_PER_REPO for the weaker repo when the dominant repo alone could fill the rest of the budget', () => {
+    const repos = [
+      { repoName: 'repo-strong', embedding: [1, 0] },
+      { repoName: 'repo-weak', embedding: [0.6, 0.1] },
+    ]
+    // 40 jobs so repo-strong (40 pairs) alone has more than enough to fill
+    // the remaining budget after reservation, isolating the floor's exact size.
+    const manyJobs = Array.from({ length: 40 }, (_, i) => ({
+      jobPostingId: `job-${i}`,
+      embedding: [0.99, 0.01],
+      postedAt: null,
+    }))
+    const result = retrieveTopCandidates(repos, manyJobs, 30)
+    const weakCount = result.filter((r) => r.matchedRepoName === 'repo-weak').length
+    expect(weakCount).toBe(MIN_CANDIDATES_PER_REPO)
+  })
+})
+
+describe('gateMatches', () => {
+  function m(repo: string, confidence: number): RerankedMatch {
+    return { jobPostingId: `job-${repo}-${confidence}`, matchedRepoName: repo, matchReason: 'because', confidence }
+  }
+
+  it('keeps a repo\'s best match even when it scores under MIN_MATCH_CONFIDENCE', () => {
+    const result = gateMatches([m('repo-a', 35)])
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedRepoName).toBe('repo-a')
+  })
+
+  it('gates out a second, weaker match for a repo that already has a match above the bar', () => {
+    const result = gateMatches([m('repo-a', 90), m('repo-a', 40)])
+    expect(result).toHaveLength(1)
+    expect(result[0].confidence).toBe(90)
+  })
+
+  it('keeps a second match for a repo when it also clears the bar', () => {
+    const result = gateMatches([m('repo-a', 90), m('repo-a', 65)])
+    expect(result.map((r) => r.confidence ?? -1).sort((a, b) => b - a)).toEqual([90, 65])
+  })
+
+  it('guarantees representation for every repo present, regardless of confidence spread', () => {
+    const result = gateMatches([m('repo-a', 95), m('repo-b', 20), m('repo-c', 5)])
+    expect(result.map((r) => r.matchedRepoName).sort()).toEqual(['repo-a', 'repo-b', 'repo-c'])
+  })
+
+  it('sorts the result best-confidence-first', () => {
+    const result = gateMatches([m('repo-a', 30), m('repo-b', 90), m('repo-c', 60)])
+    expect(result.map((r) => r.confidence)).toEqual([90, 60, 30])
+  })
+})
+
+describe('fallbackForUnrepresentedRepos', () => {
+  function candidate(repo: string, jobId: string) {
+    return { jobPostingId: jobId, matchedRepoName: repo, title: 't', company: 'c', location: null, techTags: [] }
+  }
+
+  it('synthesizes a null-confidence entry for a repo GPT returned nothing for', () => {
+    const inputs = [candidate('repo-a', 'job-1'), candidate('repo-b', 'job-2')]
+    const reranked: RerankedMatch[] = [
+      { jobPostingId: 'job-1', matchedRepoName: 'repo-a', matchReason: 'real', confidence: 80 },
+    ]
+    const result = fallbackForUnrepresentedRepos(inputs, reranked)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedRepoName).toBe('repo-b')
+    expect(result[0].confidence).toBeNull()
+  })
+
+  it('picks the first (best) candidate per repo, and only one per repo', () => {
+    const inputs = [candidate('repo-a', 'job-1'), candidate('repo-a', 'job-2')]
+    const result = fallbackForUnrepresentedRepos(inputs, [])
+    expect(result).toHaveLength(1)
+    expect(result[0].jobPostingId).toBe('job-1')
+  })
+
+  it('produces nothing when every repo is already represented', () => {
+    const inputs = [candidate('repo-a', 'job-1')]
+    const reranked: RerankedMatch[] = [
+      { jobPostingId: 'job-1', matchedRepoName: 'repo-a', matchReason: 'real', confidence: 80 },
+    ]
+    expect(fallbackForUnrepresentedRepos(inputs, reranked)).toEqual([])
+  })
 })
 
 describe('dropSeen', () => {
@@ -89,6 +196,54 @@ describe('dropSeen', () => {
 
   it('is a no-op when nothing has been seen', () => {
     expect(dropSeen(candidates, new Set())).toHaveLength(2)
+  })
+})
+
+describe('restoreRepoFloorIfFullySeen', () => {
+  const c = (repo: string, job: string, sim: number): RetrievalCandidate => ({
+    matchedRepoName: repo,
+    jobPostingId: job,
+    semanticSimilarity: sim,
+  })
+
+  it('leaves a repo alone when it still has unseen candidates', () => {
+    const retrieved = [c('repo-a', 'job-1', 0.9), c('repo-a', 'job-2', 0.5)]
+    const unseen = [c('repo-a', 'job-2', 0.5)] // job-1 was seen and dropped
+    const result = restoreRepoFloorIfFullySeen(retrieved, unseen)
+    expect(result).toEqual(unseen)
+  })
+
+  it('re-includes the best candidate for a repo whose entire pool was seen', () => {
+    const retrieved = [c('repo-a', 'job-1', 0.9), c('repo-a', 'job-2', 0.5), c('repo-b', 'job-3', 0.7)]
+    const unseen = [c('repo-b', 'job-3', 0.7)] // both repo-a candidates were seen and dropped
+    const result = restoreRepoFloorIfFullySeen(retrieved, unseen)
+    expect(result).toHaveLength(2)
+    expect(result.find((r) => r.matchedRepoName === 'repo-a')?.jobPostingId).toBe('job-1')
+  })
+
+  it('is a no-op when nothing was retrieved for a repo in the first place', () => {
+    expect(restoreRepoFloorIfFullySeen([], [])).toEqual([])
+  })
+})
+
+describe('selectOneMatchPerRepo', () => {
+  function m(repo: string, confidence: number): RerankedMatch {
+    return { jobPostingId: `job-${repo}-${confidence}`, matchedRepoName: repo, matchReason: 'because', confidence }
+  }
+
+  it('keeps at most one match per repo', () => {
+    const result = selectOneMatchPerRepo([m('repo-a', 90), m('repo-a', 80), m('repo-b', 70)], 5)
+    expect(result.map((r) => r.matchedRepoName)).toEqual(['repo-a', 'repo-b'])
+  })
+
+  it('caps the total at DISPLAY_TOTAL_CAP by default', () => {
+    const result = selectOneMatchPerRepo([m('repo-a', 90), m('repo-b', 80), m('repo-c', 70), m('repo-d', 60)])
+    expect(result).toHaveLength(DISPLAY_TOTAL_CAP)
+  })
+
+  it('keeps the highest-confidence repos when there are more repos than the cap', () => {
+    const result = selectOneMatchPerRepo([m('repo-a', 90), m('repo-b', 80), m('repo-c', 70), m('repo-d', 60)], 2)
+    expect(result.map((r) => r.matchedRepoName)).toEqual(['repo-a', 'repo-b'])
   })
 })
 
@@ -163,6 +318,46 @@ describe('rankCandidates', () => {
     // A strong semantic match should still beat a weak-but-fresh one — recency
     // must not be able to override relevance given the tuned constants.
     expect(result[0].jobPostingId).toBe('job-stale-strong')
+  })
+})
+
+describe('selectForRerank', () => {
+  function ranked(repo: string, job: string, score: number) {
+    return { matchedRepoName: repo, jobPostingId: job, semanticSimilarity: score, recencyBoost: 0, score }
+  }
+
+  it('guarantees every repo keeps its best-ranked candidate even when another repo dominates the global top-N', () => {
+    // repo-a has plenty of high scorers; repo-b's best candidate ranks
+    // below all of repo-a's — a flat slice(0, topN) would drop repo-b
+    // entirely even though it made it through retrieval/dedup/rank fine.
+    const candidates = [
+      ranked('repo-a', 'a1', 0.95),
+      ranked('repo-a', 'a2', 0.94),
+      ranked('repo-a', 'a3', 0.93),
+      ranked('repo-b', 'b1', 0.40),
+    ]
+    const result = selectForRerank(candidates, ['repo-a', 'repo-b'], 3)
+    expect(result.some((r) => r.matchedRepoName === 'repo-b')).toBe(true)
+  })
+
+  it('still respects topN as a ceiling', () => {
+    const candidates = [ranked('repo-a', 'a1', 0.9), ranked('repo-b', 'b1', 0.8), ranked('repo-c', 'c1', 0.7)]
+    const result = selectForRerank(candidates, ['repo-a', 'repo-b', 'repo-c'], 2)
+    expect(result).toHaveLength(2)
+  })
+
+  it('fills remaining budget with the next-best overall once every repo has its floor', () => {
+    const candidates = [
+      ranked('repo-a', 'a1', 0.9),
+      ranked('repo-a', 'a2', 0.85),
+      ranked('repo-b', 'b1', 0.8),
+    ]
+    const result = selectForRerank(candidates, ['repo-a', 'repo-b'], 3)
+    expect(result.map((r) => r.jobPostingId).sort()).toEqual(['a1', 'a2', 'b1'])
+  })
+
+  it('is a no-op when there is nothing to select from', () => {
+    expect(selectForRerank([], ['repo-a'], 10)).toEqual([])
   })
 })
 

@@ -32,6 +32,10 @@ interface RepoJobMatch {
   url: string
   matchRank: number
   postedAt: string | null
+  // null when the matching engine's fallback path picked this candidate
+  // without a GPT score (see lib/matching-engine.ts) — labeled as "Possible
+  // fit" rather than hidden or given a fabricated number.
+  confidence: number | null
 }
 
 // One section of the grouped jobs view — always present for every candidate
@@ -98,6 +102,23 @@ function pastRepoScoreAccent(n: number | null) {
   }
   const accent = scoreAccent(n)
   return { text: accent.text, badge: accent.badge }
+}
+
+// Every match now always shows — the confidence gate only decides how it's
+// labeled, not whether it's shown at all (2026-07-20: "no repo left with a
+// wall"). null means the matching engine's fallback picked this candidate
+// without a GPT score at all, so it gets the lowest, most honest tier.
+function matchFitTier(confidence: number | null) {
+  if (confidence === null) {
+    return { label: 'Possible fit', className: 'border-[#1E2A3D] bg-[#111827] text-[#687386]' }
+  }
+  if (confidence >= 75) {
+    return { label: 'Strong fit', className: 'border-[#22C55E]/20 bg-[#22C55E]/10 text-[#22C55E]' }
+  }
+  if (confidence >= 50) {
+    return { label: 'Good fit', className: 'border-blue-400/20 bg-blue-400/10 text-blue-400' }
+  }
+  return { label: 'Possible fit', className: 'border-[#1E2A3D] bg-[#111827] text-[#687386]' }
 }
 
 function averageScore(scores: SavedScore[]) {
@@ -202,6 +223,7 @@ function NavButtons({ items, onSelect }: { items: NavItem[]; onSelect: (id: View
 }
 
 function JobMatchCard({ m }: { m: RepoJobMatch }) {
+  const tier = matchFitTier(m.confidence)
   return (
     <div className="flex w-full flex-col rounded-xl border border-[#1E2A3D] bg-[#0D111C] p-5">
       <div className="flex items-start justify-between gap-3">
@@ -218,8 +240,8 @@ function JobMatchCard({ m }: { m: RepoJobMatch }) {
               Posted {fmtUpdated(m.postedAt)}
             </span>
           )}
-          <span className="rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2 py-0.5 text-[10px] font-bold text-[#22C55E]">
-            #{m.matchRank}
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${tier.className}`}>
+            {tier.label}
           </span>
         </div>
       </div>
@@ -247,69 +269,6 @@ function JobMatchCard({ m }: { m: RepoJobMatch }) {
         </a>
       </div>
     </div>
-  )
-}
-
-// ─── Job matching: per-repo section (JM-12 through JM-15) ──────────────────────
-
-function RepoMatchSection({
-  group,
-  githubUsername,
-  onRetry,
-  retrying,
-}: {
-  group: RepoMatchGroup
-  githubUsername: string
-  onRetry: () => void
-  retrying: boolean
-}) {
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="truncate font-mono text-sm font-semibold text-[#F5F3EA]">{group.repoName}</h2>
-          <a
-            href={`https://github.com/${githubUsername}/${group.repoName}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-[#3D4A60] transition hover:text-[#7AA7FF]"
-            aria-label={`Open ${group.repoName} on GitHub`}
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-      </div>
-
-      {group.fetchStatus === 'failed' && (
-        <div className="flex flex-col items-center rounded-xl border border-dashed border-red-400/25 bg-[#0D111C] px-5 py-8 text-center">
-          <p className="text-sm font-medium text-red-400">Couldn&apos;t load this repo.</p>
-          <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">GitHub didn&apos;t respond in time for this repo — the rest of your matches are unaffected.</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            disabled={retrying}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-[#1E2A3D] px-3 py-1.5 text-xs font-semibold text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${retrying ? 'animate-spin' : ''}`} /> {retrying ? 'Retrying…' : 'Retry'}
-          </button>
-        </div>
-      )}
-
-      {group.fetchStatus === 'ok' && group.matches.length === 0 && (
-        <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-5 py-8 text-center">
-          <p className="text-sm text-[#9AA3B5]">No strong match yet for this repo.</p>
-          <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">We only surface roles that genuinely fit — nothing forced to fill a slot.</p>
-        </div>
-      )}
-
-      {group.fetchStatus === 'ok' && group.matches.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {group.matches.map((m) => (
-            <JobMatchCard key={`${group.repoName}-${m.matchRank}`} m={m} />
-          ))}
-        </div>
-      )}
-    </section>
   )
 }
 
@@ -917,19 +876,34 @@ export default function ProfilePage() {
                     </div>
                   )}
 
-                  {jobMatchGroups !== null && jobMatchGroups.length > 0 && (
-                    <div className="space-y-8">
-                      {jobMatchGroups.map((group) => (
-                        <RepoMatchSection
-                          key={group.repoName}
-                          group={group}
-                          githubUsername={githubUsername}
-                          onRetry={() => fetchJobMatches({ refresh: true })}
-                          retrying={jobMatchesRefreshing}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  {jobMatchGroups !== null && jobMatchGroups.length > 0 && (() => {
+                    // Flat list, not grouped by repo (2026-07-20): each
+                    // card's reason text already names the repo it came
+                    // from, so a per-repo section header is redundant —
+                    // just show the (already capped to DISPLAY_TOTAL_CAP,
+                    // one-per-repo) matches themselves.
+                    const flatMatches = jobMatchGroups.flatMap((g) => g.matches)
+                    if (flatMatches.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center rounded-xl border border-dashed border-[#1E2A3D] px-6 py-16 text-center">
+                          <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#111827]">
+                            <Briefcase className="h-4 w-4 text-[#3D4A60]" />
+                          </span>
+                          <p className="text-sm font-medium text-[#9AA3B5]">No strong match yet.</p>
+                          <p className="mt-1 max-w-sm text-xs text-[#3D4A60]">
+                            We only surface roles that genuinely fit — nothing forced to fill a slot.
+                          </p>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {flatMatches.map((m, i) => (
+                          <JobMatchCard key={`${m.title}-${m.company}-${i}`} m={m} />
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </>
               )}
             </div>

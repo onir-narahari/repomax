@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { computeMatchesForUser } from '@/lib/matching-engine'
 import type { JobMatch, JobPosting } from '@/types'
 
-// Single fast DB read now (issue #17) — no GitHub fetch, no LLM call — so the
-// old 60s budget for the live-compute path is way more than this needs.
-export const maxDuration = 15
+// Bumped from the old DB-only-read 15s (issue #17) — this route can now
+// trigger an on-demand computeMatchesForUser call (2026-07-20, see below),
+// which makes one GPT-4o rerank request. 60s is the Vercel Hobby-plan
+// ceiling; raise if/when the project moves to Pro.
+export const maxDuration = 60
 
 interface JobPostingRow {
   id: string
@@ -24,6 +27,7 @@ interface MatchRow {
   matched_repo_name: string
   match_reason: string
   match_rank: number
+  confidence: number | null
   job_postings: JobPostingRow | JobPostingRow[] | null
 }
 
@@ -42,6 +46,10 @@ interface RepoMatchGroup {
     url: string
     matchRank: number
     postedAt: string | null
+    // null for the matching-engine fallback path (GPT never scored this
+    // candidate) — the frontend labels that tier distinctly rather than
+    // showing a fabricated number.
+    confidence: number | null
   }>
 }
 
@@ -68,6 +76,7 @@ function rowToMatch(row: MatchRow): JobMatch | null {
     matchedRepoName: row.matched_repo_name,
     matchReason: row.match_reason,
     matchRank: row.match_rank,
+    confidence: row.confidence ?? undefined,
   }
 }
 
@@ -100,18 +109,33 @@ function buildGroupedResponse(candidateNames: string[], matches: JobMatch[]): Re
         url: m.jobPosting.absoluteUrl,
         matchRank: m.matchRank,
         postedAt: m.jobPosting.postedAt,
+        confidence: m.confidence ?? null,
       })),
   }))
 }
 
-// DB-only read path (issue #17, docs/prd-job-matching.md §9 & §14): all the
-// expensive work (GitHub fetches, embeddings, LLM rerank) already happened
-// at onboarding / the 8am cron (lib/matching-engine.ts's
-// computeMatchesForUser), which wrote today's rows. This route only ever
-// reads them — a single DB query, so the page loads instantly. `?refresh=1`
-// (still sent by the frontend's "Refresh matches" button) is a harmless
-// no-op: there's no live recompute to trigger anymore, so it just re-runs
-// this same cheap read.
+async function readTodaysMatches(admin: ReturnType<typeof createAdminClient>, userId: string, today: string) {
+  return admin
+    .from('user_job_matches')
+    .select('matched_repo_name, match_reason, match_rank, confidence, job_postings(*)')
+    .eq('user_id', userId)
+    .eq('match_date', today)
+    .order('match_rank', { ascending: true })
+}
+
+// Mostly a DB read (issue #17, docs/prd-job-matching.md §9 & §14): the
+// expensive work (GitHub fetches, embeddings, LLM rerank) normally already
+// happened at onboarding or the 8am cron (lib/matching-engine.ts's
+// computeMatchesForUser), which wrote today's rows — this route just reads
+// them. 2026-07-20: if a user opens this page and today's rows don't exist
+// yet (e.g. they're logging in mid-afternoon, well before the next 8am cron
+// run), compute on-demand right here instead of making them wait up to 24h.
+// Idempotent either way — computeMatchesForUser upserts on
+// (user_id, match_date, match_rank), so a login-triggered compute and the
+// 8am cron never conflict, and the cron still "resets" everyone's matches
+// once a new UTC day starts. `?refresh=1` (still sent by the frontend's
+// "Refresh matches" button) is a no-op beyond that: there's no separate
+// live-compute mode anymore, so it just re-runs this same read/compute path.
 export async function GET() {
   const supabase = await createClient()
   const {
@@ -143,16 +167,29 @@ export async function GET() {
     return NextResponse.json({ repos: [] })
   }
 
-  const { data: existing, error: matchesError } = await admin
-    .from('user_job_matches')
-    .select('matched_repo_name, match_reason, match_rank, job_postings(*)')
-    .eq('user_id', user.id)
-    .eq('match_date', today)
-    .order('match_rank', { ascending: true })
+  const firstRead = await readTodaysMatches(admin, user.id, today)
+  const matchesError = firstRead.error
+  let existing = firstRead.data
 
   if (matchesError) {
     console.error('[RepoMax] user_job_matches read failed:', matchesError)
     return NextResponse.json({ error: 'DB_ERROR' }, { status: 502 })
+  }
+
+  if ((existing ?? []).length === 0) {
+    try {
+      await computeMatchesForUser(user.id)
+    } catch (err) {
+      // Don't fail the page over this — worst case, the user still sees
+      // today's (empty) state and the 8am cron catches them tomorrow.
+      console.error('[RepoMax] on-demand computeMatchesForUser failed:', err)
+    }
+    const recomputed = await readTodaysMatches(admin, user.id, today)
+    if (recomputed.error) {
+      console.error('[RepoMax] user_job_matches re-read after compute failed:', recomputed.error)
+    } else {
+      existing = recomputed.data
+    }
   }
 
   const matches = ((existing as unknown as MatchRow[] | null) ?? [])

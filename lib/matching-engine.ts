@@ -58,7 +58,10 @@ export interface RerankedMatch {
   jobPostingId: string
   matchedRepoName: string
   matchReason: string
-  confidence: number
+  // null only for the fallbackForUnrepresentedRepos safety net below — a
+  // candidate GPT never scored, so there's no honest number to show. Every
+  // GPT-produced match always carries a real 0-100 score.
+  confidence: number | null
 }
 
 export interface ComputeMatchesResult {
@@ -83,12 +86,24 @@ export const RERANK_TOP_N = 10
 // on MAX_TOTAL_MATCHES there for why this is 5, not the PRD's illustrative 3.
 export const TARGET_MATCHES = MAX_TOTAL_MATCHES
 
-// Matches lib/job-matching.ts's finalizeMatches bar — keep the live and
-// precomputed engines' notion of "good enough to show" aligned. This is also
-// what "no inflated match %" cashes out to (§8.4): the only score that ever
-// gets written or surfaced is this GPT-4o calibrated confidence, never raw
-// cosine similarity (which clusters ~85-95% for any plausible pair and would
-// look inflated if shown directly).
+// 2026-07-20 product decision: for the initial release, show at most one
+// match per repo and cap the whole set at 3 total, so the page reads as a
+// clean flat list rather than a per-repo grid with an uneven spread. This
+// intentionally overrides TARGET_MATCHES/applyPerRepoCap's "up to 2/repo"
+// spread below — revisit if/when the product wants more than one slot per
+// repo again.
+export const DISPLAY_TOTAL_CAP = 3
+
+// Matches lib/job-matching.ts's finalizeMatches bar. As of the 2026-07-20
+// "no repo left with a wall" product decision, this bar no longer gates
+// whether a repo gets a match at all — every repo that reaches rerank always
+// keeps its single best pairing, honestly labeled even if under this number
+// (see gateMatches below). It still gates any *additional* match beyond a
+// repo's first, so a repo's bonus slots stay genuinely strong rather than
+// padded with filler. The only score that ever gets written or surfaced is
+// the GPT-4o calibrated confidence, never raw cosine similarity (which
+// clusters ~85-95% for any plausible pair and would look inflated if shown
+// directly).
 const MIN_MATCH_CONFIDENCE = 60
 
 // Recency nudges/tie-breaks (§8.3 step 4, §11); it must never swing the
@@ -128,26 +143,63 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
 
-// Step 1 (§8.3): cosine every (repo, job) pair and keep the top N overall —
-// not per-repo. A user's strongest repo can legitimately claim more of this
-// initial pool; per-repo balance is enforced later by applyPerRepoCap, not
-// here.
+// How many of a repo's own best pairs are reserved into the pool regardless
+// of global rank (see retrieveTopCandidates below). Without this, a repo
+// whose cosine scores are systematically a bit lower than a user's other
+// repos — not a worse project, just a less common vocabulary overlap with
+// the current job pool — can get crowded out of the top-N entirely before
+// rerank ever sees it. 2026-07-20 product decision: "no repo left with a
+// wall."
+export const MIN_CANDIDATES_PER_REPO = 3
+
+// Step 1 (§8.3, revised 2026-07-20): cosine every (repo, job) pair. Reserve
+// each repo's own top MIN_CANDIDATES_PER_REPO pairs round-robin first (so no
+// repo is shut out of the pool by a flat global cut), then fill any
+// remaining budget with the best pairs overall regardless of repo. Per-repo
+// balance beyond this floor is still enforced later by applyPerRepoCap.
 export function retrieveTopCandidates(
   repos: RepoEmbeddingInput[],
   jobs: JobEmbeddingInput[],
   topN: number = RETRIEVE_TOP_N
 ): RetrievalCandidate[] {
-  const pairs: RetrievalCandidate[] = []
+  const allPairs: RetrievalCandidate[] = []
   for (const repo of repos) {
     for (const job of jobs) {
-      pairs.push({
+      allPairs.push({
         jobPostingId: job.jobPostingId,
         matchedRepoName: repo.repoName,
         semanticSimilarity: cosineSimilarity(repo.embedding, job.embedding),
       })
     }
   }
-  return pairs.sort((a, b) => b.semanticSimilarity - a.semanticSimilarity).slice(0, topN)
+  allPairs.sort((a, b) => b.semanticSimilarity - a.semanticSimilarity)
+
+  const byRepo = new Map<string, RetrievalCandidate[]>()
+  for (const repo of repos) byRepo.set(repo.repoName, [])
+  for (const p of allPairs) byRepo.get(p.matchedRepoName)?.push(p)
+
+  const key = (p: RetrievalCandidate) => `${p.matchedRepoName} ${p.jobPostingId}`
+  const included = new Set<string>()
+  const pool: RetrievalCandidate[] = []
+
+  for (let round = 0; round < MIN_CANDIDATES_PER_REPO && pool.length < topN; round++) {
+    for (const repo of repos) {
+      if (pool.length >= topN) break
+      const candidate = byRepo.get(repo.repoName)?.[round]
+      if (!candidate) continue
+      pool.push(candidate)
+      included.add(key(candidate))
+    }
+  }
+
+  for (const p of allPairs) {
+    if (pool.length >= topN) break
+    if (included.has(key(p))) continue
+    pool.push(p)
+    included.add(key(p))
+  }
+
+  return pool.sort((a, b) => b.semanticSimilarity - a.semanticSimilarity)
 }
 
 // Step 2 (§8.3): drop postings already shown to this user.
@@ -156,6 +208,30 @@ export function dropSeen(
   seenJobPostingIds: ReadonlySet<string>
 ): RetrievalCandidate[] {
   return candidates.filter((c) => !seenJobPostingIds.has(c.jobPostingId))
+}
+
+// 2026-07-20 fix: dropSeen has no per-repo floor, so a repo with a small raw
+// candidate pool (e.g. it only ever scored 3 in retrieval to begin with) can
+// have every one of those marked seen after a few compute runs and vanish
+// entirely — even though downstream gateMatches would have guaranteed it a
+// match if it had reached that stage. If a repo's unseen count hits zero
+// here, re-include its single best candidate (already-seen or not) rather
+// than let it disappear; a repo that still has real unseen options is
+// untouched.
+export function restoreRepoFloorIfFullySeen(
+  retrieved: RetrievalCandidate[],
+  unseen: RetrievalCandidate[]
+): RetrievalCandidate[] {
+  const unseenRepos = new Set(unseen.map((c) => c.matchedRepoName))
+  const bestByRepo = new Map<string, RetrievalCandidate>()
+  for (const c of retrieved) {
+    if (unseenRepos.has(c.matchedRepoName)) continue
+    const existing = bestByRepo.get(c.matchedRepoName)
+    if (!existing || c.semanticSimilarity > existing.semanticSimilarity) {
+      bestByRepo.set(c.matchedRepoName, c)
+    }
+  }
+  return [...unseen, ...bestByRepo.values()]
 }
 
 // Step 3 (§8.3): the same posting can appear once per repo it was paired
@@ -202,6 +278,45 @@ export function rankCandidates(
     .sort((a, b) => b.score - a.score)
 }
 
+// 2026-07-20 fix (round 2): a flat `ranked.slice(0, RERANK_TOP_N)` has the
+// exact same crowding-out problem retrieveTopCandidates already guards
+// against, one funnel stage later — a repo whose candidates simply score a
+// bit lower across the board than a user's other repos (not absent, just
+// lower-ranked) can still get sliced off entirely before rerank/GPT ever
+// sees it, even though it made it through retrieval and dedup just fine.
+// Guarantee each repo's single best-ranked candidate survives into rerank;
+// fill the rest of the topN budget with the next-best overall.
+export function selectForRerank(
+  ranked: RankedCandidate[],
+  repoNames: readonly string[],
+  topN: number = RERANK_TOP_N
+): RankedCandidate[] {
+  const byRepo = new Map<string, RankedCandidate[]>()
+  for (const name of repoNames) byRepo.set(name, [])
+  for (const c of ranked) byRepo.get(c.matchedRepoName)?.push(c) // already best-first (ranked is sorted)
+
+  const key = (c: RankedCandidate) => `${c.matchedRepoName} ${c.jobPostingId}`
+  const included = new Set<string>()
+  const selected: RankedCandidate[] = []
+
+  for (const name of repoNames) {
+    if (selected.length >= topN) break
+    const best = byRepo.get(name)?.[0]
+    if (!best) continue
+    selected.push(best)
+    included.add(key(best))
+  }
+
+  for (const c of ranked) {
+    if (selected.length >= topN) break
+    if (included.has(key(c))) continue
+    selected.push(c)
+    included.add(key(c))
+  }
+
+  return selected.sort((a, b) => b.score - a.score)
+}
+
 // §8.5: the adaptive per-repo cap. repoCount is the user's TOTAL committed
 // repo count (not just repos that happen to have a surviving candidate) so a
 // 1- or 2-repo user still gets the full cap even when only one of their
@@ -212,12 +327,28 @@ export function computeRepoCap(targetMatches: number, repoCount: number): number
   return Math.max(2, Math.ceil(targetMatches / repoCount))
 }
 
-// Steps 6+7 (§8.3): assumes `matches` is already confidence-gated and
-// sorted best-first. Enforces the adaptive per-repo cap and the overall
-// target, keeping the highest-confidence matches when trimming. No
-// fallback/flex — a user whose gated matches don't fill the target
-// legitimately ends up with fewer, including zero ("send fewer, not
-// weaker" — §8.3 step 6, §11).
+// 2026-07-20: the current display cap — one match per repo, capped at
+// DISPLAY_TOTAL_CAP overall. `matches` is assumed sorted best-first
+// (gateMatches's output), so this naturally keeps each repo's single best.
+export function selectOneMatchPerRepo(matches: RerankedMatch[], cap: number = DISPLAY_TOTAL_CAP): RerankedMatch[] {
+  const seenRepos = new Set<string>()
+  const result: RerankedMatch[] = []
+  for (const m of matches) {
+    if (result.length >= cap) break
+    if (seenRepos.has(m.matchedRepoName)) continue
+    seenRepos.add(m.matchedRepoName)
+    result.push(m)
+  }
+  return result
+}
+
+// Steps 6+7 (§8.3): assumes `matches` is already gated (gateMatches above)
+// and sorted best-first. Enforces the adaptive per-repo cap and the overall
+// target, keeping the highest-confidence matches when trimming. A repo that
+// reached rerank always has an entry here (gateMatches guarantees it), so
+// zero-for-a-represented-repo shouldn't happen at typical repo counts; a
+// repo with genuinely zero candidates in the pool still legitimately gets
+// none ("send fewer, not weaker" — §8.3 step 6, §11).
 export function applyPerRepoCap(
   matches: RerankedMatch[],
   repoCount: number,
@@ -340,9 +471,9 @@ const RERANK_SYSTEM_PROMPT = `You are matching a CS student's GitHub projects to
 
 You'll be given a pre-shortlisted list of candidate (repo, posting) pairs, already narrowed down by semantic similarity. For each pair, decide if there's real overlap — shared language, framework, or project domain (e.g. a repo using React/Node matches a full-stack posting; an ML repo matches an ML engineering posting).
 
-Order the genuinely strong pairs best-first. Drop pairs with only a tenuous or generic overlap rather than including them anyway — it is correct and expected to return fewer than the full list, including zero, when overlap is weak.
+Order the genuinely strong pairs best-first. Every repo name that appears in the candidate list must have at least one entry in your response — pick its single best available pairing even when the overlap is only tenuous, and score that honestly (well under 50) rather than either inflating it or omitting the repo entirely. Beyond that one guaranteed pairing per repo, drop any other candidate whose overlap is only tenuous or generic — it's correct to return fewer than the full list for a repo's extra slots, just never zero for a repo that had candidates at all.
 
-For each pair you keep, write one concise, specific sentence naming the repo it's grounded in and what actually overlaps with the posting. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. Score confidence honestly (0-100) — this is used downstream to filter out weak matches, so an inflated score defeats the purpose.`
+For each pair you keep, write one concise, specific sentence naming the repo it's grounded in and what actually overlaps with the posting. Never claim culture fit, career growth, or anything not backed by the repo's actual stack. Score confidence honestly (0-100) — a genuinely strong match should score high, a tenuous one should score low; never adjust the score to make a pairing look more or less fit-for-purpose than it is.`
 
 async function rerankTopCandidates(
   candidates: RerankCandidateInput[],
@@ -398,6 +529,58 @@ async function rerankTopCandidates(
     })
   }
   return matches
+}
+
+// Step 6 (revised 2026-07-20 — "no repo left with a wall"): guarantee every
+// repo present in `reranked` keeps its single best-scoring pairing, even
+// below MIN_MATCH_CONFIDENCE. The bar still applies to every candidate
+// beyond a repo's first, so bonus matches stay genuinely strong — only the
+// one guaranteed slot per repo can carry a low, honestly-labeled score
+// instead of being silently dropped. Pure/unit-testable; no I/O.
+export function gateMatches(reranked: RerankedMatch[]): RerankedMatch[] {
+  const bestByRepo = new Map<string, RerankedMatch>()
+  const rest: RerankedMatch[] = []
+  for (const m of reranked) {
+    const existing = bestByRepo.get(m.matchedRepoName)
+    if (!existing) {
+      bestByRepo.set(m.matchedRepoName, m)
+    } else if ((m.confidence ?? -1) > (existing.confidence ?? -1)) {
+      rest.push(existing)
+      bestByRepo.set(m.matchedRepoName, m)
+    } else {
+      rest.push(m)
+    }
+  }
+  const guaranteed = Array.from(bestByRepo.values())
+  const gatedRest = rest.filter((m) => (m.confidence ?? -1) >= MIN_MATCH_CONFIDENCE)
+  return [...guaranteed, ...gatedRest].sort((a, b) => (b.confidence ?? -1) - (a.confidence ?? -1))
+}
+
+// Safety net for gateMatches: the rerank prompt now instructs GPT to never
+// fully omit a repo that appears in its candidate list, but LLM
+// instruction-following isn't guaranteed. For any repo that still comes back
+// with zero reranked entries, fall back to its best raw retrieval candidate
+// rather than silently showing nothing. No fabricated fit claim — the reason
+// is grounded only in retrieval having found it, and confidence is left
+// `null` (never GPT-scored) so the UI labels it as the closest available,
+// not a graded strong/good fit.
+export function fallbackForUnrepresentedRepos(
+  rerankInputs: RerankCandidateInput[],
+  reranked: RerankedMatch[]
+): RerankedMatch[] {
+  const represented = new Set(reranked.map((m) => m.matchedRepoName))
+  const fallbacks: RerankedMatch[] = []
+  for (const c of rerankInputs) {
+    if (represented.has(c.matchedRepoName)) continue
+    represented.add(c.matchedRepoName) // rerankInputs is best-first per repo — first hit wins
+    fallbacks.push({
+      jobPostingId: c.jobPostingId,
+      matchedRepoName: c.matchedRepoName,
+      matchReason: `Closest available role for ${c.matchedRepoName} in today's job pool — no stronger overlap found.`,
+      confidence: null,
+    })
+  }
+  return fallbacks
 }
 
 // ---------------------------------------------------------------------------
@@ -486,10 +669,14 @@ export async function computeMatchesForUser(userId: string): Promise<ComputeMatc
   // --- Retrieve → drop seen → dedupe → rank (pure funnel, see above) ---
   const retrieved = retrieveTopCandidates(repoEmbeddings, jobEmbeddings)
   const unseen = dropSeen(retrieved, seenIds)
-  const deduped = dedupeByHighestScoringRepo(unseen)
+  const withSeenFloor = restoreRepoFloorIfFullySeen(retrieved, unseen)
+  const deduped = dedupeByHighestScoringRepo(withSeenFloor)
   const postedAtByJobId = new Map(jobPostings.map((j) => [j.id, j.posted_at]))
   const ranked = rankCandidates(deduped, postedAtByJobId, new Date())
-  const topForRerank = ranked.slice(0, RERANK_TOP_N)
+  const topForRerank = selectForRerank(
+    ranked,
+    repoEmbeddings.map((r) => r.repoName)
+  )
 
   if (topForRerank.length === 0) {
     return {
@@ -516,14 +703,14 @@ export async function computeMatchesForUser(userId: string): Promise<ComputeMatc
   })
 
   const reranked = await rerankTopCandidates(rerankInputs, repoSummaries)
+  const withFallback = [...reranked, ...fallbackForUnrepresentedRepos(rerankInputs, reranked)]
 
-  // --- Gate: send fewer, not weaker ---
-  const gated = reranked
-    .filter((m) => m.confidence >= MIN_MATCH_CONFIDENCE)
-    .sort((a, b) => b.confidence - a.confidence)
+  // --- Gate: every repo that reached rerank keeps its best; bonus slots
+  // beyond that still need to clear MIN_MATCH_CONFIDENCE ---
+  const gated = gateMatches(withFallback)
 
-  // --- Adaptive per-repo cap ---
-  const finalMatches = applyPerRepoCap(gated, repoEmbeddings.length, TARGET_MATCHES)
+  // --- Display cap: one match per repo, DISPLAY_TOTAL_CAP overall ---
+  const finalMatches = selectOneMatchPerRepo(gated)
 
   if (finalMatches.length === 0) {
     return {
