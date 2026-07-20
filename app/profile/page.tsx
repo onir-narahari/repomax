@@ -788,23 +788,15 @@ export default function ProfilePage() {
                   </p>
                 </div>
                 {githubUsername && jobsProfile?.onboarded && !jobsConfirmScreenMode && (
-                  <div className="flex shrink-0 items-center gap-3">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
                     <button
                       type="button"
                       onClick={openEditProjects}
-                      className="text-xs font-medium text-[#3D4A60] underline-offset-2 transition hover:text-[#7AA7FF] hover:underline"
+                      className="text-xs font-medium text-[#7AA7FF] underline-offset-2 transition hover:text-[#9DBBFF] hover:underline"
                     >
-                      Edit my projects
+                      Edit my projects for tomorrow&apos;s matching
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => fetchJobMatches({ refresh: true })}
-                      disabled={jobMatchesRefreshing}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#1E2A3D] bg-[#0D111C] px-3 py-2 text-xs font-medium text-[#9AA3B5] transition hover:border-[#334155] hover:text-[#F5F3EA] disabled:opacity-50"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${jobMatchesRefreshing ? 'animate-spin' : ''}`} />
-                      {jobMatchesRefreshing ? 'Refreshing…' : 'Refresh matches'}
-                    </button>
+                    <span className="text-[11px] text-[#3D4A60]">Matching runs once a day — changes apply to the next run.</span>
                   </div>
                 )}
               </div>

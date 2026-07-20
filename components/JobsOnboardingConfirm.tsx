@@ -123,7 +123,7 @@ export default function JobsOnboardingConfirm({ mode, githubRepos, initialRepoNa
   const nothingToPrune = defaultNames !== null && githubRepos.length > 0 && defaultNames.length === githubRepos.length
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
+    <div className="mx-auto w-full max-w-5xl">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-[#F5F3EA]">
           {mode === 'edit' ? 'Edit your projects' : 'Confirm your projects'}
@@ -140,13 +140,13 @@ export default function JobsOnboardingConfirm({ mode, githubRepos, initialRepoNa
       {candidateError && <p className="mb-4 text-sm text-red-400">{candidateError}</p>}
 
       {loadingDefaults ? (
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-[60px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-[120px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
           ))}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {githubRepos.map((repo) => {
             const checked = selected.has(repo.name)
             const suggested = mode === 'onboarding' && (defaultNames?.includes(repo.name) ?? false)
@@ -155,33 +155,30 @@ export default function JobsOnboardingConfirm({ mode, githubRepos, initialRepoNa
                 key={repo.name}
                 type="button"
                 onClick={() => toggleRepo(repo.name)}
-                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
-                  checked ? 'border-[#22C55E]/40 bg-[#0D111C]' : 'border-[#1E2A3D] bg-[#090D16] hover:border-[#334155]'
+                aria-pressed={checked}
+                className={`group relative flex w-full flex-col rounded-xl border p-5 text-left transition ${
+                  checked ? 'border-[#22C55E]/45 bg-[#0F1420]' : 'border-[#1E2A3D] bg-[#0D111C] hover:border-[#334155] hover:bg-[#0F1420]'
                 }`}
               >
                 <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                  className={`absolute right-4 top-4 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
                     checked ? 'border-[#22C55E] bg-[#22C55E]/20' : 'border-[#334155]'
                   }`}
                 >
                   {checked && <Check className="h-3 w-3 text-[#22C55E]" strokeWidth={3} />}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 truncate font-mono text-sm font-medium text-[#F5F3EA]">
-                    <span className="truncate">{repo.name}</span>
-                    {suggested && (
-                      <span className="shrink-0 rounded-full border border-[#7AA7FF]/25 bg-[#7AA7FF]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#7AA7FF]">
-                        Suggested
-                      </span>
-                    )}
-                  </p>
-                  <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
-                    {repo.language && (
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
-                    )}
-                    <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
-                  </p>
-                </div>
+                <p className="truncate pr-8 font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
+                <p className="mt-2 flex items-center gap-2 text-xs text-[#687386]">
+                  {repo.language && (
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
+                  )}
+                  <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
+                </p>
+                {suggested && (
+                  <span className="mt-5 inline-flex w-fit items-center gap-1 rounded-lg border border-[#7AA7FF]/25 bg-[#7AA7FF]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#7AA7FF]">
+                    Suggested
+                  </span>
+                )}
               </button>
             )
           })}
