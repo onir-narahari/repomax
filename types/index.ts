@@ -132,6 +132,8 @@ export interface GitHubUserRepo {
   stars: number
   updatedAt: string
   size: number
+  description: string | null
+  topics: string[]
 }
 
 export interface JobPosting {

@@ -1,8 +1,7 @@
 import OpenAI, { APIConnectionTimeoutError } from 'openai'
 import { z } from 'zod'
 import { deriveTechTags } from './job-postings'
-import { fetchRepoContext, parseRepoUrl } from './github'
-import { createAdminClient } from './supabase-admin'
+import { fetchRepoContext, fetchPinnedRepoNames, parseRepoUrl } from './github'
 import type { GitHubUserRepo, JobPosting, JobMatch, RepoContext } from '@/types'
 
 let _client: OpenAI | null = null
@@ -12,7 +11,10 @@ function getClient() {
 }
 
 const SHORTLIST_PER_REPO = 8
-export const MAX_CANDIDATE_REPOS = 4
+// Target committed set size (docs/prd-job-matching.md §7) — repo selection
+// only engages scoring/pinning above this; at or below it, every usable repo
+// is used with no ranking.
+export const MAX_CANDIDATE_REPOS = 5
 // Tune these against real match output — see docs/prd-job-matching-revamp.md.
 const MIN_MATCH_CONFIDENCE = 60
 const MAX_MATCHES_PER_REPO = 2
@@ -193,107 +195,106 @@ async function rerankAndExplain(profiles: RepoProfile[], shortlist: JobPosting[]
   return matches
 }
 
-function repoFullName(r: GitHubUserRepo): string | null {
-  try {
-    const { owner, repo } = parseRepoUrl(r.htmlUrl)
-    return `${owner}/${repo}`
-  } catch {
-    return null
-  }
+// Name heuristics for coursework/tutorial repos (docs/prd-job-matching.md
+// §7.2) — these look like real projects by size/stars but don't represent a
+// student's own work.
+const PENALIZED_NAME_PATTERNS: RegExp[] = [
+  /tutorial/i,
+  /(^|[-_])hw\d*($|[-_])/i,
+  /assignment/i,
+  /cs\d{2,4}/i,
+  /clone/i,
+  /^learn-/i,
+  /dotfiles/i,
+]
+
+function hasPenalizedName(name: string): boolean {
+  return name.startsWith('.') || PENALIZED_NAME_PATTERNS.some((p) => p.test(name))
 }
 
-interface RepoOverride {
-  position: number
-  repoFullName: string
+const NAME_PENALTY = 40
+const DESCRIPTION_BONUS = 15
+const TOPICS_BONUS_PER_TOPIC = 3
+const TOPICS_BONUS_CAP = 12
+const SIZE_BONUS_CAP = 12
+const RECENCY_BONUS_CAP = 8
+const RECENCY_DECAY_DAYS = 30 // ~1 point lost per month since last update
+const STAR_BONUS_CAP = 5
+// Candidates within this many points of each other are treated as a close
+// score (docs/prd-job-matching.md §7.2: "break toward tech/domain diversity
+// on close scores" rather than piling onto the single top-scoring stack).
+const CLOSE_SCORE_MARGIN = 8
+
+function scoreRepo(repo: GitHubUserRepo, now: number): number {
+  let score = 0
+
+  if (repo.description && repo.description.trim().length > 0) score += DESCRIPTION_BONUS
+  if (repo.topics.length > 0) score += Math.min(repo.topics.length * TOPICS_BONUS_PER_TOPIC, TOPICS_BONUS_CAP)
+
+  score += Math.min(Math.log10(repo.size + 1) * 4, SIZE_BONUS_CAP)
+  score += Math.min(Math.log10(repo.stars + 1) * 2, STAR_BONUS_CAP)
+
+  const ageDays = (now - new Date(repo.updatedAt).getTime()) / 86_400_000
+  score += Math.max(0, RECENCY_BONUS_CAP - ageDays / RECENCY_DECAY_DAYS)
+
+  if (hasPenalizedName(repo.name)) score -= NAME_PENALTY
+
+  return score
 }
 
-// Returns saved repo overrides for a user (position + repo_full_name),
-// ordered by position, or null if the user has none set (or the lookup
-// fails) — callers should treat null the same as "no override, use
-// auto-selection."
-async function fetchRepoOverrides(userId: string): Promise<RepoOverride[] | null> {
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from('user_job_repo_overrides')
-      .select('position, repo_full_name')
-      .eq('user_id', userId)
-      .order('position', { ascending: true })
-    if (error || !data || data.length === 0) return null
-    return (data as Array<{ position: number; repo_full_name: string }>).map((r) => ({
-      position: r.position,
-      repoFullName: r.repo_full_name,
-    }))
-  } catch {
-    return null
+// Fills `count` slots from `candidates` by composite score, breaking close
+// scores toward language diversity instead of always taking the next-highest
+// score — a student's second-best web app shouldn't crowd out their one ML
+// repo just because it scores a couple points higher. Never filters anyone
+// out for a low/negative score: if every candidate is penalized, the top
+// `count` (by score) are still returned.
+function selectByCompositeScore(candidates: GitHubUserRepo[], count: number, now: number): GitHubUserRepo[] {
+  const remaining = candidates
+    .map((repo) => ({ repo, score: scoreRepo(repo, now) }))
+    .sort((a, b) => b.score - a.score)
+
+  const selected: GitHubUserRepo[] = []
+  const usedLanguages = new Set<string>()
+
+  while (selected.length < count && remaining.length > 0) {
+    const topScore = remaining[0].score
+    const closeCount = remaining.findIndex((c) => c.score < topScore - CLOSE_SCORE_MARGIN)
+    const closeCandidates = remaining.slice(0, closeCount === -1 ? remaining.length : closeCount)
+
+    let pickIdx = closeCandidates.findIndex((c) => !c.repo.language || !usedLanguages.has(c.repo.language))
+    if (pickIdx === -1) pickIdx = 0
+
+    const [pick] = remaining.splice(pickIdx, 1)
+    selected.push(pick.repo)
+    if (pick.repo.language) usedLanguages.add(pick.repo.language)
   }
+
+  return selected
 }
 
-// Picks the candidate repo set: starts from the auto-selected repos (N most
-// recently updated — repos is already sorted by updatedAt, filtered to
-// non-fork/non-empty, see fetchUserRepos) and merges saved overrides into
-// their specific slots on top, rather than replacing the whole list. Each
-// override is matched against the user's real current repos — a
-// stale/deleted repo name is ignored, not blindly trusted. If an override's
-// repo would duplicate another slot, the duplicate is dropped and backfilled
-// from the next best auto-pick not already used, so the result stays at up
-// to MAX_CANDIDATE_REPOS distinct repos.
-function selectCandidateRepos(repos: GitHubUserRepo[], overrides: RepoOverride[] | null): GitHubUserRepo[] {
-  const auto = repos.slice(0, MAX_CANDIDATE_REPOS)
-  if (!overrides || overrides.length === 0) return auto
+// Picks the candidate repo set (docs/prd-job-matching.md §7). Pure function
+// of the repo list + pinned repo names so it's directly unit-testable
+// without hitting GitHub. `now` defaults to the real clock but can be pinned
+// in tests since recency is one of the scoring signals.
+export function selectCandidateRepos(
+  repos: GitHubUserRepo[],
+  pinnedNames: string[] = [],
+  now: number = Date.now()
+): GitHubUserRepo[] {
+  if (repos.length <= MAX_CANDIDATE_REPOS) return repos
 
-  const byFullName = new Map(repos.map((r) => [repoFullName(r), r] as const))
-  const resolved = overrides
-    .filter((o) => o.position >= 0 && o.position < MAX_CANDIDATE_REPOS)
-    .map((o) => ({ position: o.position, repo: byFullName.get(o.repoFullName) ?? null }))
-    .filter((o): o is { position: number; repo: GitHubUserRepo } => o.repo !== null)
+  const pinnedSet = new Set(pinnedNames)
+  const pinned = pinnedNames
+    .map((name) => repos.find((r) => r.name === name))
+    .filter((r): r is GitHubUserRepo => r !== undefined)
+    .slice(0, MAX_CANDIDATE_REPOS)
 
-  // None of the overrides resolved to a real current repo — fall through to
-  // auto-selection rather than silently matching against nothing.
-  if (resolved.length === 0) return auto
+  if (pinned.length >= MAX_CANDIDATE_REPOS) return pinned
 
-  // One slot per position, defaulting to the auto-pick that would otherwise
-  // land there, then drop each resolved override into its specific slot.
-  const slots: Array<GitHubUserRepo | null> = Array.from({ length: MAX_CANDIDATE_REPOS }, (_, i) => auto[i] ?? null)
-  for (const { position, repo } of resolved) {
-    slots[position] = repo
-  }
+  const unpinned = repos.filter((r) => !pinnedSet.has(r.name))
+  const filled = selectByCompositeScore(unpinned, MAX_CANDIDATE_REPOS - pinned.length, now)
 
-  // Dedupe: keep the first occurrence of a given repo (lower position wins)
-  // and clear any later slot that duplicates it, so it can be backfilled.
-  const kept = new Set<string>()
-  for (let i = 0; i < slots.length; i++) {
-    const name = slots[i] ? repoFullName(slots[i] as GitHubUserRepo) : null
-    if (!name) continue
-    if (kept.has(name)) {
-      slots[i] = null
-    } else {
-      kept.add(name)
-    }
-  }
-
-  // Backfill empty slots (from dedup, or a position beyond what
-  // auto-selection alone would have filled) with the next best auto-pick not
-  // already used elsewhere.
-  const backfillPool = repos.filter((r) => {
-    const name = repoFullName(r)
-    return name !== null && !kept.has(name)
-  })
-  let poolIdx = 0
-  for (let i = 0; i < slots.length; i++) {
-    if (slots[i] !== null) continue
-    while (poolIdx < backfillPool.length) {
-      const candidate = backfillPool[poolIdx++]
-      const name = repoFullName(candidate)
-      if (name && !kept.has(name)) {
-        slots[i] = candidate
-        kept.add(name)
-        break
-      }
-    }
-  }
-
-  return slots.filter((r): r is GitHubUserRepo => r !== null)
+  return [...pinned, ...filled]
 }
 
 // Drops matches whose matchedRepoName isn't one of the actual candidate
@@ -329,18 +330,19 @@ export interface CandidateRepoContext {
   context?: RepoContext
 }
 
-// Resolves the candidate repo set (honoring saved overrides when `userId` is
-// given) and fetches each candidate's GitHub context exactly once. This is
-// the ONLY place fetchRepoContext is called for job matching — callers that
-// need per-repo fetch status (e.g. the API route, for JM-8) AND the actual
+// Resolves the candidate repo set (fetching the user's pinned repos via
+// GitHub GraphQL when `username` is given, see selectCandidateRepos) and
+// fetches each candidate's GitHub context exactly once. This is the ONLY
+// place fetchRepoContext is called for job matching — callers that need
+// per-repo fetch status (e.g. the API route, for JM-8) AND the actual
 // matching pipeline (matchJobsForRepos) should both consume this function's
 // output rather than re-deriving candidates or re-fetching.
 export async function fetchCandidateRepoContexts(
   repos: GitHubUserRepo[],
-  userId?: string
+  username?: string
 ): Promise<CandidateRepoContext[]> {
-  const overrides = userId ? await fetchRepoOverrides(userId) : null
-  const candidates = selectCandidateRepos(repos, overrides)
+  const pinnedNames = username ? await fetchPinnedRepoNames(username) : []
+  const candidates = selectCandidateRepos(repos, pinnedNames)
 
   const results = await Promise.allSettled(
     candidates.map((r) => {
@@ -358,12 +360,12 @@ export async function fetchCandidateRepoContexts(
 }
 
 // Resolves just the candidate repo names (same selection logic as
-// fetchCandidateRepoContexts, honoring overrides) without fetching any
+// fetchCandidateRepoContexts, including pinned repos) without fetching any
 // GitHub context. For callers that need to know which repos are candidates
 // — e.g. to shape a cache-hit response — without paying for a fetch pass.
-export async function resolveCandidateRepoNames(repos: GitHubUserRepo[], userId?: string): Promise<string[]> {
-  const overrides = userId ? await fetchRepoOverrides(userId) : null
-  return selectCandidateRepos(repos, overrides).map((r) => r.name)
+export async function resolveCandidateRepoNames(repos: GitHubUserRepo[], username?: string): Promise<string[]> {
+  const pinnedNames = username ? await fetchPinnedRepoNames(username) : []
+  return selectCandidateRepos(repos, pinnedNames).map((r) => r.name)
 }
 
 // Matches a set of already-fetched candidate repo contexts (see

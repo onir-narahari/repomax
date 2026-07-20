@@ -351,6 +351,8 @@ export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]
     stargazers_count: number
     updated_at: string
     size: number
+    description: string | null
+    topics: string[] | null
   }>)
     // Exclude forks, private repos, and empty repos (size === 0, same signal
     // fetchMetadata uses for EMPTY_REPO) — a fork or a repo with no pushed
@@ -363,6 +365,8 @@ export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]
       stars: r.stargazers_count ?? 0,
       updatedAt: r.updated_at,
       size: r.size ?? 0,
+      description: r.description ?? null,
+      topics: r.topics ?? [],
     }))
 }
 
