@@ -15,6 +15,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkYW9ma3NvcWd4eGlzdXd0dHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3Njc4OTUsImV4cCI6MjA5ODM0Mzg5NX0.Zc0X2XISbVk4hHtbC4cMp3W80MIfqwEbRrpCyGSxL18
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -22,4 +24,35 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # Lint only files changed in this push/PR — the existing codebase has
+      # pre-existing violations (mostly a strict set-state-in-effect rule)
+      # that haven't been cleaned up yet, so a full-repo lint would block
+      # every unrelated PR. This still enforces the rules on anything new.
+      - name: Lint changed files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "No valid base commit to diff against (e.g. first push) — skipping."
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only --diff-filter=d "$BASE" "${{ github.sha }}" -- '*.ts' '*.tsx' '*.js' '*.jsx' | grep -v '^\.claude/worktrees/' || true)
+
+          if [ -z "$CHANGED" ]; then
+            echo "No lintable files changed."
+            exit 0
+          fi
+
+          echo "Linting changed files:"
+          echo "$CHANGED"
+          echo "$CHANGED" | xargs npx eslint
+
       - run: npm run build

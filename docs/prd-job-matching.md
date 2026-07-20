@@ -1,205 +1,281 @@
-# PRD: GitHub-Matched Job Postings
+# PRD: Daily GitHub-Matched Job Postings
 
-**Status:** Phase 1 implemented (matching + profile UI, no email/cron yet — see §16)
-**Owner:** TBD
-**Last updated:** 2026-07-17
-**Related:** `components/HomePageSections.tsx`'s job-matching announcement copy, the "My Job Postings" view in `app/profile/page.tsx` (`view === 'jobs'`), `[[project_github_connect_feature]]` memory
+**Status:** Planned
+**Owner:** Onir
+**Last updated:** 2026-07-19
+**Related:** "My Job Postings" view in `app/profile/page.tsx` (`view === 'jobs'`), `lib/job-matching.ts`, `lib/job-postings.ts`, `app/api/jobs/*`, `[[project_github_connect_feature]]` memory
 
 ---
 
 ## 1. Summary
 
-Give every RepoMax user 3 open roles matched to their own GitHub activity — surfaced on their profile and delivered by email once a day at noon. The pitch: *"Find roles that are tailored to you. 3 open roles matched to your GitHub, delivered to your inbox every day at noon."*
+Give every RepoMax user a small daily set of **internship postings genuinely tailored to their best GitHub projects**, surfaced on their profile. The user confirms which projects represent them **once**, during onboarding; from then on the product just delivers — no configuration, no waiting.
 
-This turns RepoMax from a one-time "score my repo" tool into something with a daily reason to come back, and closes the loop from "here's what's wrong with your repo" to "here's a role you could actually get."
+Two properties define the whole design:
+
+1. **Precomputed, not live.** All expensive work (GitHub fetches, embeddings, LLM reranking) happens on a background cron or once at onboarding — never in the page request. The website loads matches with a single DB read, so it's instant.
+2. **Embedding-based matching.** Matches come from semantic similarity between a user's repos and postings, so real fit is captured ("Flask REST API" ≈ "Python backend role") rather than brittle keyword overlap.
 
 ## 2. Problem
 
-RepoMax tells students their repo is weak and how to fix it, but stops there. Students still have to:
-- Find relevant internship/new-grad postings themselves (scattered across LinkedIn, Simplify, company boards)
-- Guess whether their specific stack/project actually matches what a listing wants
-- Do this repeatedly, manually, with no signal from RepoMax after the initial scan
+The current implementation being replaced has three structural problems:
 
-There's already a placeholder for this: `app/profile/page.tsx` ships a "My Job Postings" nav item with a "Coming soon" empty state and an email-capture waitlist form (`JobsWaitlistForm`, posts to `/api/waitlist`, fires `job_postings_notify_signup_client` in PostHog). This PRD is what fills that placeholder in.
+1. **Matching quality is bad.** Job "tech tags" are derived from `title + category` only, so most postings get zero tags. The keyword-overlap shortlist that feeds the LLM is therefore near-random, and the LLM can only pick the best of a bad set.
+2. **It's slow.** `GET /api/jobs/matches` fetches full repo context from GitHub (multiple API calls per repo, up to 4 repos) *and* runs a GPT-4o rerank — synchronously, in the request, while the user watches a spinner. Every refresh/swap re-runs the whole thing.
+3. **Repo selection is naive and the config UX is confusing.** It matches against the 4 most-recently-updated repos (surfaces coursework and half-finished experiments), and the "swap a repo" override flow lets users endlessly re-roll matches, which is confusing and off-goal.
 
 ## 3. Goals
 
-- Match 3 open roles to a user's **3 most recently updated GitHub repos** (not just their single scanned repo)
-- Show those 3 matches on `/profile` (`view=jobs`), replacing the current waitlist stub
-- Email the same 3 matches daily at 12:00 (see §8.4 for the timezone caveat) to opted-in users
-- Matches must be explainable — each one shows *why* it matched (shared stack, project type, etc.), consistent with RepoMax's "specific, not vague" positioning
-- Keep it recruiter-realistic: internship / new-grad SWE roles only, nothing senior
+- Deliver a small daily set (target **3**, up to 5) of internship postings matched to a user's **best, diverse** GitHub repos.
+- Matches are **precomputed** (daily 8am cron) so the website loads instantly — page = a DB read, not a compute.
+- Matching uses **embeddings** (semantic similarity), so real fit is captured.
+- The user confirms their representative repos **once**; the daily loop needs zero interaction afterward.
+- Prefer **fresh** postings — recency is a ranking factor and is shown ("Posted 2 days ago").
+- Each match is **explainable**, grounded in a specific repo → specific posting overlap. No inflated match %.
+- Never show the same posting to the same user twice.
 
-## 4. Non-goals (v1)
+## 4. Scope boundaries
 
-- Not a full job board / search experience — no filters, no browsing beyond the 3 matches
-- Not applying on the user's behalf — matches link out to the original posting
-- Not scraping or aggregating from sites that prohibit it (see §7 sourcing decision)
-- No resume/application tracking (separate feature)
-- No per-user matching feedback loop (thumbs up/down) in v1 — noted as a fast-follow in §12
-- No SMS/push — email only
+In scope, but **later** (schema/architecture leaves room; not built now):
+- **Email delivery** — matches are already precomputed rows, so sending is a straightforward add. Not built now.
+- **Role type / location / remote preferences** — onboarding captures **repos only**. Location filtering sits dormant until it's added.
+- **Auto-refresh of the committed profile** — the profile is recomputed **only when the user edits their repo set**. Periodic refresh for repo drift comes later.
+
+Out of scope entirely:
+- New-grad (non-internship) postings — internships only.
+- A job board / search experience; auto-apply; a thumbs up/down feedback loop.
+- Intraday re-matching — the user-facing set is computed once at 8am; a job posted at noon surfaces the next morning.
 
 ## 5. Users & entry points
 
 | User state | Behavior |
 |---|---|
-| Signed in, GitHub connected (via existing "Connect GitHub" flow), has ≥1 public repo | Full experience: matches computed from their 3 most recently updated repos |
-| Signed in, GitHub connected, 0 usable repos (all empty/forked) | Empty state: "connect a repo with real code to get matched" |
-| Signed in, **not** GitHub-connected (email/Google signup) | Prompted to connect GitHub before matching can run — this is the same "linking" gap already flagged as an open item in `[[project_github_connect_feature]]`. Matching *cannot* ship for these users until that's resolved, or v1 explicitly excludes them (see §7 open decision) |
-| Not signed in | Sees the feature pitch on the landing/profile page with a CTA to sign in + connect GitHub; no matches computed |
+| Signed in, GitHub connected, ≥1 usable repo | Full experience: onboarding confirm step → committed profile → daily matches |
+| Signed in, GitHub connected, 0 usable repos | Empty state: "connect a repo with real code to get matched" |
+| Signed in, **not** GitHub-connected | Prompted to connect GitHub first (same linking gap noted in `[[project_github_connect_feature]]`) |
+| Not signed in | Sees the pitch + CTA to sign in and connect GitHub; no matches computed |
 
-## 6. User flow
+"Usable repo" = public, non-fork, non-empty (size > 0) — the same filter `fetchUserRepos` already applies.
 
-1. User connects GitHub (existing flow) or is already connected.
-2. RepoMax pulls their 3 most recently updated public, non-fork repos (reuse `fetchUserRepos` in `lib/github.ts`, already sorted by `updatedAt`).
-3. For each of those repos, extract the same structured signal RepoMax already computes for scoring (languages, frameworks, topics, tech stack tags — see `lib/repo-score.ts` / `StructuredFacts`) rather than re-deriving it from scratch.
-4. Combine the 3 repos' signals into one "candidate profile" (stack tags, primary languages, project types — e.g. "full-stack web," "ML/data," "systems").
-5. Candidate profile is matched against the current open-role pool (see §7) to produce the top 3 roles, each with a 1-line "why this matched" reason tied to a specific repo (e.g. "Matched from `repo-name` — both use Next.js + Postgres").
-6. Matches render on `/profile?view=jobs`, replacing the waitlist stub.
-7. If the user has notifications enabled, the same 3 matches are emailed daily at noon.
-8. Matches refresh once a day (tied to the same job that sends the email — see §8.3) — not on every profile visit, to keep results stable within a day and avoid re-running the matcher on every page load.
+---
 
-## 7. Job posting data — the central open decision
+## 6. The architecture in one picture
 
-RepoMax has **no existing job data source, ATS integration, or scraper**. This is the single biggest unknown in this PRD and determines feasibility more than anything else below. Three realistic options:
-
-| Option | How it works | Pros | Cons |
-|---|---|---|---|
-| **A. Paid job-data API** (e.g. Adzuna, JSearch/RapidAPI, Jooble) | Pull SWE internship/new-grad listings via API, refreshed on a schedule | Fast to integrate, legal, structured data (title/company/location/description) out of the box | Recurring cost; coverage/quality for *internship-specific* roles varies and needs filtering; still need tech-stack tagging ourselves |
-| **B. Public ATS job boards** (Greenhouse, Lever, Ashby expose public JSON job-board APIs per company, no key needed) | Maintain a curated list of companies known to hire CS interns/new grads, pull their public board JSON directly | Free, high-quality, real postings, legal (these endpoints are meant to be public) | Manual curation of the company list; no aggregation across the whole market — only companies you've added |
-| **C. Scrape general job boards (LinkedIn, Indeed, etc.)** | Scrape listings | Broad coverage | Against most of these sites' ToS, fragile, and risks the account/IP — **not recommended** |
-
-**Recommendation: start with B (curated Greenhouse/Lever/Ashby boards), backed by A later if coverage is too thin.** It's free, matches RepoMax's "practical, specific" positioning (real companies, real postings — not a generic aggregator feed), and a curated list of ~50-100 companies that actually hire CS interns is a reasonable v1 scope. This needs a product decision before engineering starts — flagging it rather than assuming.
-
-Regardless of source, postings need to be normalized into a common shape and tagged with a tech-stack signature (languages/frameworks mentioned in the description) so they're matchable against a repo's stack.
-
-## 8. Architecture
-
-### 8.1 Data model (new Supabase tables)
+The core principle: **move all expensive work out of the request path.** The website stops *computing* matches and starts *reading* them.
 
 ```
-job_postings
-  id                uuid pk
-  source             text        -- 'greenhouse:stripe', 'adzuna', etc.
-  external_id        text        -- id from the source, for dedupe
-  title              text
-  company            text
-  location           text
-  level              text        -- 'internship' | 'new_grad'
-  url                text
-  description_raw    text
-  tech_tags          text[]      -- derived tags, e.g. ['react','postgres','python']
-  posted_at          timestamptz
-  is_active          boolean     -- flips false once closed/stale
-  last_seen_at       timestamptz -- last time the source confirmed it's still live
-  created_at         timestamptz
+INGEST (frequent, cheap, background):
+   pull SimplifyJobs feed → normalize → extract real tags → EMBED each new posting → upsert job_postings
 
-user_job_matches
-  id                 uuid pk
-  user_id            uuid fk -> auth.users
-  job_posting_id     uuid fk -> job_postings
-  matched_repo_name  text        -- which of the 3 repos drove the match
-  match_reason       text        -- short explainer shown in UI/email
-  match_rank         int         -- 1-3
-  match_date         date        -- the day this match set was generated (one set per day)
-  emailed_at         timestamptz null
-  created_at         timestamptz
+CONFIRM (once per user, at onboarding — the only time a human waits):
+   pick best repos → user confirms/edits → fetch repo context → distill per-repo skill profile
+   → EMBED each repo → store committed profile → run first match immediately
 
-user_email_prefs
-  user_id            uuid pk fk -> auth.users
-  job_matches_enabled boolean default false   -- opt-in, not opt-out (see §10)
-  timezone           text null                -- for per-user noon send, if built (see §8.4)
-  unsubscribed_at    timestamptz null
+8AM CRON (nobody watching — slow is fine):
+   for each onboarded user: computeMatchesForUser(userId) → write daily 3 to user_job_matches
+
+WEBSITE (someone watching — must be instant):
+   SELECT today's matches WHERE user_id = me   ← one DB query, milliseconds
 ```
 
-### 8.2 Matching pipeline
+`computeMatchesForUser(userId)` is **one function with two callers**: the 8am cron (loops over all users) and the confirm step (runs once for the new user). No duplicated logic.
 
-Two-stage to control cost, consistent with how RepoMax already uses LLM calls sparingly for scoring:
+---
 
-1. **Cheap filter:** compare candidate profile's tech tags against `job_postings.tech_tags` with simple overlap scoring, narrow the active pool down to ~15-20 candidates.
-2. **LLM rerank + explain:** send the shortlist + the 3 repos' structured facts to the existing Anthropic/OpenAI client (`@anthropic-ai/sdk` / `openai` are already dependencies) to pick the top 3 and generate the one-line "why" for each. This mirrors how resume bullets are already grounded in real repo evidence per the project's resume-bullet rules — job-match reasons should follow the same rule: **no invented fit** ("perfect for you!") — only concrete stack/project-type overlap.
+## 7. Repo selection (which projects represent the user)
 
-### 8.3 Scheduling
+Replaces "4 most-recently-updated non-forks." The picker produces **plausible defaults the user confirms in one tap** — it doesn't need to be perfect because the confirm step is the safety net.
 
-- New Vercel Cron job (`vercel.json` currently has no `crons` — needs adding) hitting `/api/cron/job-matching` once daily.
-- That endpoint: (a) refreshes `job_postings` from source if stale, (b) recomputes `user_job_matches` for every user with GitHub connected, (c) sends emails to everyone with `job_matches_enabled = true`.
-- Protect the endpoint with `CRON_SECRET` checked against Vercel's cron request header, per Vercel Cron conventions.
-- Separate, more frequent posting-refresh cron (e.g. every 6h) is worth splitting out from the per-user matching job so a slow job-source fetch doesn't block email send timing.
+**Target committed set size: ~5 repos.**
 
-### 8.4 "Every day at noon" — timezone caveat
+The amount of work depends entirely on how many usable repos the user has — selection only *engages* when there are more usable repos than the target:
 
-Noon in what timezone? Two options:
-- **v1 (recommended): fixed noon UTC (or a fixed US time, e.g. noon ET)** — one cron trigger, simplest to build and reason about. State this plainly in the UI/email copy ("every day at noon ET") rather than promising personalized local noon.
-- **v2: per-user local noon** — requires storing `timezone` per user (column already sketched above) and either running the cron hourly and filtering to users whose local time is currently noon, or using a queue with per-user scheduled sends. More correct, more complexity — defer unless users push back on a fixed time.
+### 7.1 Few repos (≤ target, i.e. 1–5 usable repos) — no selection, use them all
+There's nothing to rank or choose. Use **every** usable repo as the committed set. The confirm step still shows them ("these are the projects we'll represent you with"), but there's nothing to prune from — it's a confirmation, not a choice. This covers the common student case of 1, 2, or 3 real repos. See §8.5 for how matching adapts to a 1- or 2-repo set.
 
-### 8.5 Email delivery
+### 7.2 Many repos (> target) — pinned-first, then composite score
+1. **Pinned repos win.** GitHub lets users pin up to 6 — that's them hand-curating their best work for employers. Requires a **GraphQL call** (`user.pinnedItems`); the REST list endpoint does **not** expose pins. If the user has pinned repos, those become the default set (capped at the target size, in pin order).
+2. **Composite score fills the rest** (no pins, or fewer pins than the target). Scored from the REST list endpoint (one call, no per-repo fetch):
 
-No email-sending infrastructure exists in this codebase today (checked: no Resend/SendGrid/Postmark/nodemailer dependency, `/api/waitlist` only posts to PostHog). This needs to be added.
+| Signal | Direction | Weight |
+|---|---|---|
+| Has `description` | + | medium+ |
+| Has `topics` | + | medium |
+| Code substance (`size` not tiny) | + | medium |
+| `pushed_at` recency | + | low (tiebreaker) |
+| Stars | + | very low (noise for students) |
+| Name heuristics: `*-tutorial`, `hw`, `assignment`, `cs101`, `clone`, `learn-*`, dotfiles | − | strong negative |
+| Fork / empty / private | exclude | — |
 
-**Recommendation: Resend.** It's the natural fit for a Vercel/Next.js app (first-class Next.js integration, generous free tier, simple API), and is already implicitly the path of least resistance given the stack (Vercel deploy + Next.js).
+- **Diverse over coherent:** prefer a spread of tech/domains (one ML, one web, one systems) to maximize the number of postings that can plausibly match. When scores are close, break toward tech/language diversity rather than piling on the same stack.
+- **README quality** is the best filter but isn't in the list endpoint — don't fetch it during selection. Use `description`/`topics`/`size` as cheap proxies to pick ~5 candidates; since the confirm step deep-fetches those candidates anyway, quietly down-rank a README-less repo at that later stage.
+- **All candidates weak?** If every repo is penalized (all coursework/tutorials), still pick the top ~5 available — never return an empty set just because scores are low. The confidence gate at match time handles quality; selection's job is only to choose *which* repos.
 
-Email must include:
-- The 3 matched roles (title, company, one-line match reason, apply link)
-- A visible, working **unsubscribe link** — this is a legal requirement for any recurring bulk email (CAN-SPAM), not optional polish
-- Copy tone matching RepoMax's positioning: practical and specific, not "we found amazing opportunities for you!" — e.g. "3 roles that match your stack" not "unlock your dream job"
+---
 
-## 9. Profile page changes (`app/profile/page.tsx`)
+## 8. The matching engine
 
-Replace the `view === 'jobs'` block (currently `JobsWaitlistForm` + "Coming soon" empty state, lines ~598-620) with:
+A retrieve → rank → rerank funnel. At ~1000 postings this needs **no vector DB / ANN** — brute-force cosine over 1000 vectors is microseconds.
 
-- If matches exist for today: 3 cards, each showing role title, company, location, level badge, the matched-repo tag, the one-line reason, and an "Apply →" external link — visually consistent with the existing `PastRepoCard` / GitHub repo card patterns already on this page (rounded-xl border cards, accent color per state).
-- A small toggle for "Email me daily at noon" wired to `user_email_prefs.job_matches_enabled` (defaults off — see §10).
-- If the user isn't GitHub-connected yet: reuse the same "Connect GitHub" CTA pattern from the home view rather than inventing a new one.
-- If GitHub-connected but no matches yet (pool empty / still computing): keep a lightweight version of today's empty state, not the waitlist form (that capture already happened for existing waitlist signups — see §12 migration note).
+```
+1000 postings ──retrieve──▶ ~30 ──drop seen + dedupe──▶ ──rank──▶ ~10 ──LLM rerank──▶ gate ──▶ 3
+```
 
-## 10. Opt-in, not opt-out
+### 8.1 Candidate profile (built once, at confirm)
+- For each committed repo, an LLM extracts a **structured skill profile**: languages, frameworks, infra, domain, and "what was actually built."
+- A distilled NL paragraph per repo (e.g. *"Real-time chat app with Next.js, WebSockets, Postgres"*) is **embedded** — one vector **per repo** (per-repo, not blended, so matches attribute cleanly to a project and diversity is natural).
+- Stored on `user_job_profile_repos`. Recomputed only when the user edits their repos.
 
-Daily email should be **explicit opt-in**, off by default, surfaced clearly on first visit to the jobs view ("Email me daily at noon" toggle, not a pre-checked box). This avoids CAN-SPAM/consent issues and matches how a recruiter-aware, non-spammy product should behave — sending unsolicited daily email to every signup would work against RepoMax's "practical, not generic AI SaaS" positioning.
+### 8.2 Job embeddings (built once, at ingest)
+- Each posting's text (title + tags + any description) is embedded when first ingested and cached on `job_postings.embedding`. Never re-embedded once seen. Shared across all users.
+- Real tech tags are extracted from the **full posting**, not just `title + category` (fixes the current tagging bug), for use as a lexical signal.
 
-## 11. Freemium / gating question
+### 8.3 Match time (`computeMatchesForUser`)
+1. **Retrieve:** cosine each of the user's repo embeddings against all active job embeddings → top ~30 candidates.
+2. **Drop seen:** remove any posting already in `user_job_seen` for this user.
+3. **Dedupe across repos:** the same posting can surface for two repos — keep it once, attributed to its highest-scoring repo.
+4. **Rank:** `score = semantic_similarity + recency_boost − penalties`. `recency_boost` decays with age (posted <48h strong, <7d medium, <14d small, older ~0). Relevance leads; recency nudges/tie-breaks.
+5. **Rerank:** GPT-4o reranks the top ~10 — final ordering + an **evidence-grounded reason** tied to a specific repo + a calibrated confidence.
+6. **Gate:** keep matches above the confidence bar. **Send fewer, not weaker** — if fewer than 3 clear the bar, show fewer (including zero).
+7. **Write:** upsert into `user_job_matches` for today; insert shown postings into `user_job_seen`.
 
-Per `[[project_github_connect_feature]]`, RepoMax has **no billing system yet**. Before building this, decide: is daily job matching a free feature (retention driver) or a Pro feature (monetization driver, once billing exists)? This PRD assumes **free for v1** since billing is a prerequisite RepoMax doesn't have, same reasoning already applied to the GitHub-connect freemium gate. Revisit once billing ships.
+### 8.4 Explainability
+- Each match shows a short, specific reason: which repo it's grounded in and what overlaps. Never claim culture/growth fit. Consistent with CLAUDE.md's "no fabricated metrics" rule.
+- **No raw similarity shown as a %** — cosine values cluster high (everything looks 85–95%). If any score is displayed, calibrate/rank-normalize across the day's set.
 
-## 12. Migration note
+### 8.5 Per-repo spread adapts to how many repos exist
+To keep the daily set diverse when there are many repos, no single repo should dominate — but that cap must **never** prevent filling the set when there are few repos. The rule:
 
-Existing `/api/waitlist` signups (captured via `job_postings_notify_signup_client` in PostHog) are email addresses only, not tied to a `user_id` or GitHub account, and can't be matched to repos. They should get a "it's live — connect your GitHub to see your matches" email once this ships, not be silently enrolled.
+- The per-repo cap is `max(2, ceil(targetMatches / repoCount))`.
+- **1 repo:** all 3 matches come from that one repo (cap = 3). Matching runs identically — one repo vector, cosine over 1000, rerank, gate. Nothing special needed; it's just a smaller profile.
+- **2 repos:** up to 2 per repo, so 3 can be filled (e.g. 2 + 1).
+- **5+ repos:** the cap holds at ~2/repo, spreading across projects.
 
-## 13. Success metrics
+So a user with a single strong repo still gets a full set matched to it; a user with many gets spread. The engine is the same in every case — only the cap flexes.
 
-- % of GitHub-connected users who opt in to daily email
-- Email open rate / click-through to "Apply →"
-- Daily active return to `/profile?view=jobs` among opted-in users
-- Match relevance, proxied by click-through rate per match (low CTR on a given tech-tag combo signals the matcher needs tuning)
+---
 
-## 14. Fast-follows (explicitly out of scope for v1)
+## 9. Speed model
 
-- Thumbs up/down feedback on individual matches to tune the reranker over time
-- Per-user local-timezone send time
-- Filters/browsing beyond the daily 3
-- Expanding job source coverage beyond the initial curated ATS list (§7 option A as a supplement)
-- Resume-bullet-to-application handoff ("here's a bullet tailored to this specific posting")
+| | Current implementation | This plan |
+|---|---|---|
+| **Page load** | GitHub fetches + GPT-4o, live | one DB read (instant) |
+| **Heavy work** | every visit, in-request | once at 8am, background |
+| **User waits on LLM** | every visit | only once, at onboarding |
 
-## 15. Open decisions — resolved for Phase 1
+- **Day 1 (signup, any time):** one-time ~5–15s "analyzing your projects…" while the profile is built + first match runs. Kick the repo-context fetch + profile build off the moment the user **connects GitHub** (while they're still on the confirm screen) so most latency is hidden behind UI they're already using.
+- **Day 2+:** instant — the 8am cron already wrote today's rows; the page just reads them.
 
-1. **Job data source: curated Greenhouse boards.** Verified live on 2026-07-17 against 35 real company boards (Stripe, Anthropic, Databricks, Coinbase, Airbnb, Cloudflare, MongoDB, Robinhood, Duolingo, Figma, and 25 more — see `lib/companies.ts`). No paid API, no scraping ToS risk. List is easy to extend by adding board tokens.
-2. **Non-GitHub-connected users: excluded from Phase 1**, consistent with the `linkIdentity` gap already noted in `[[project_github_connect_feature]]`. The jobs view shows a plain "connect GitHub" message with no broken CTA rather than promising a flow that doesn't exist yet.
-3. **Timezone: deferred** — moot until email ships (§16); matches currently regenerate lazily, once per calendar day, on the user's first profile visit that day.
-4. **Email provider: deferred to Phase 2** (§16) — Resend remains the recommendation whenever that phase starts.
-5. **Gating: free**, unchanged — no billing system exists to gate against yet.
+---
 
-## 16. What's built vs. deferred
+## 10. New users mid-day
 
-**Built (Phase 1 — matching + profile UI, no email/cron):**
-- `supabase/migrations/0001_job_matching.sql` — `job_postings` + `user_job_matches` tables, RLS policies. **Needs to be run manually** in the Supabase SQL editor; nothing in this codebase can execute DDL against your project automatically.
-- `lib/companies.ts` — the curated Greenhouse company list.
-- `lib/job-postings.ts` — ingestion: fetches each company's board, filters to CS/SWE intern + new-grad titles via regex, tags matched postings with a tech-tag vocabulary derived from the full job description.
-- `lib/job-matching.ts` — matching: pulls structured facts for the user's 3 most recently updated repos (reusing `fetchRepoContext`, the same function full repo scans use), shortlists postings by tech-tag overlap, then reranks + explains the top 3 via the existing OpenAI client pattern from `lib/prompt.ts`, with the same "never invent fit" constraint the resume-bullet prompt already enforces.
-- `app/api/jobs/refresh` (POST, `x-refresh-secret` header against `JOB_REFRESH_SECRET`) — runs ingestion, upserts postings, deactivates anything not seen in the latest refresh. **Manually triggered for now** — there is no cron calling this yet.
-- `app/api/jobs/matches` (GET, authenticated) — returns today's cached matches if they exist, otherwise computes them on the user's request and caches the result in `user_job_matches` for the rest of the day.
-- `app/profile/page.tsx` `view === 'jobs'` now renders real match cards (title, company, location, tech tags, one-line match reason, "matched from `<repo>`", Apply link) instead of the waitlist stub. `JobsWaitlistForm` and its `/api/waitlist` capture path were removed since they're superseded — the feature is live, not a waitlist anymore.
+The 8am cron only covers already-onboarded users. A user who signs up at 2pm gets their **first batch computed at the end of onboarding** (the confirm step calls `computeMatchesForUser` once). This is fast because the shared job embeddings already exist from the last ingest; only the user's profile embedding + one rerank are new. The cron takes over the next morning.
 
-**Deferred (Phase 2 — needs your input to start):**
-- Vercel Cron wiring for `/api/jobs/refresh` (posting refresh) and a daily per-user match/email job.
-- Resend integration + verified sending domain + email templates with a working unsubscribe link (legally required for recurring bulk email).
-- `user_email_prefs` table + the opt-in toggle on the profile page (§10 — off by default).
-- Fixed-vs-per-user timezone decision for "noon" once email exists to make it matter.
+Edge: a signup before the very first ingest (empty `job_postings`) → "no matches yet, check back tomorrow." Effectively never happens once live.
+
+---
+
+## 11. Freshness & recency
+
+- **Daily ingest replenishes the pool**; newly-ingested postings are automatically **unseen**, so fresh + relevant postings naturally surface first.
+- **Recency term in ranking** (§8.3 step 4) tilts toward new postings without letting an irrelevant-but-new job outrank a strong match.
+- **"Posted X ago" badge** on each card; sort newest-relevant first. (Research: leading with freshness drives clicks; applying within 48h ~3x response rate.)
+- **Running-dry policy:** with ~1000 postings a heavy user eventually exhausts fresh matches. Always prefer unseen; **send fewer, not weaker.** The unseen pool replenishes with each ingest.
+- **Ingest cadence ≠ match cadence.** Ingest can run every few hours (cheap) to keep the pool maximally fresh; the user-facing match still runs once at 8am from the freshest available pool.
+
+---
+
+## 12. Edge cases
+
+| Case | Handling |
+|---|---|
+| **0 usable repos** | Empty state, no profile built: "connect a repo with real code to get matched." |
+| **1–5 usable repos** | No selection/scoring — commit all of them (§7.1). |
+| **1 usable repo** | Match engine runs unchanged on one repo vector; per-repo cap = 3 so the full set fills from it (§8.5). |
+| **2 usable repos** | Per-repo cap = 2, so a 2+1 split fills the set (§8.5). |
+| **All repos are coursework/tutorials (all penalized)** | Selection still picks the top ~5; the confidence gate — not selection — decides quality (§7.2). |
+| **Fewer than 3 matches clear the gate** | Send fewer, not weaker — including zero (§8.3 step 6, §11). |
+| **Same posting matches two repos** | Deduped to one, attributed to its highest-scoring repo (§8.3 step 3). |
+| **Committed repo later deleted/renamed on GitHub** | Matching uses the **stored** embedding, so the daily run is unaffected. Only a re-onboard/edit needs to handle the repo being gone (drop it, rebuild from what remains). |
+| **User edits repos down to fewer** | Rebuild the profile from whatever remains; if it drops to 0, back to the empty state. |
+| **User pushes major new code after onboarding** | Not auto-picked up (profile refreshes only on edit — a known limitation, §15). |
+| **Unseen pool exhausted (heavy user, thin supply)** | Prefer unseen; send fewer. Replenishes as ingest pulls new postings. |
+| **Ingest feed unreachable / empty** | Keep the last known `job_postings`; matching runs against the existing pool. Don't wipe on a failed fetch. |
+| **Existing users from the old feature** | Retiring `user_job_repo_overrides` / `user_job_repo_status` drops their old overrides; they pass through the new confirm step once to build a committed profile. Old `user_job_matches` rows are harmless (compatible shape) and simply get superseded by the next run. |
+
+---
+
+## 13. Data model
+
+### New / changed tables
+
+**`user_job_profile`** — one row per user (singular state):
+- `user_id` (pk, → auth.users)
+- `onboarded_at`, `updated_at`
+- `status` (e.g. `active` / `needs_reonboarding`)
+- *(reserved for later: `role_type`, `location_pref`, `remote_ok`)*
+
+**`user_job_profile_repos`** — one row per committed repo per user (what matching cosines against):
+- `user_id`, `repo_full_name`, `repo_name`
+- `pinned` (bool)
+- `skills` (jsonb: languages/frameworks/infra/domain/what-was-built)
+- `profile_text` (the distilled NL paragraph that gets embedded)
+- `embedding` (vector)
+- `updated_at`
+- unique `(user_id, repo_full_name)`
+
+**`job_postings`** — existing table + `embedding` (vector) column, populated at ingest.
+
+**`user_job_matches`** — existing table, holds the daily set. Columns for `match_reason`, `confidence`, `match_rank`, `match_date`. Rank cap already raised to 5.
+
+**`user_job_seen`** — append-only freshness memory:
+- `user_id`, `job_posting_id`, `first_shown_at`
+- unique `(user_id, job_posting_id)`
+
+### Retired
+- `user_job_repo_overrides` → replaced by `user_job_profile_repos` (committed list is the source of truth; the position/slot/backfill machinery in `lib/job-matching.ts` goes away).
+- `user_job_repo_status` → the per-day fetch-status hack; unnecessary once fetch happens once at confirm.
+
+### RLS & extension
+- Same pattern as existing tables: users read only their own `user_job_profile*` / `user_job_matches` / `user_job_seen` rows; writes go through the service role (cron + confirm route). `job_postings` stays public-read.
+- `embedding` uses the `vector` extension (pgvector) — or a plain `float8[]` column, since retrieval is brute-force in application code either way. Decide at build start.
+
+---
+
+## 14. Surfaces & routes
+
+- **Onboarding confirm step** (new UI): auto-picked ~5 diverse repos with checkboxes + the user's other repos to add (or, for ≤5 usable repos, just the full set shown to confirm). "These are the projects we'll represent you with — confirm or edit." Confirm → build profile → first match → land on the jobs view. An "Edit my projects" affordance lives in settings; the daily loop needs none.
+- **`GET /api/jobs/matches`** — simplified to a **DB read** of today's `user_job_matches` (no live fetch/LLM). Grouped-by-repo response shape can stay for the UI.
+- **`POST /api/jobs/profile`** (new) — persist the committed repo set, (re)build the profile, run the first/updated match. Replaces the `repo-overrides` endpoint.
+- **`POST /api/jobs/refresh`** (ingest) — extended to embed postings; cron-driven (frequent).
+- **New cron** — 8am daily: (optionally re-ingest, then) loop `computeMatchesForUser` over all onboarded users. Configured via `vercel.json` `crons` + a protected endpoint (secret header, same pattern as the existing `JOB_REFRESH_SECRET` ingest route). See §16 for the time-budget/scaling consideration.
+- **UI** — per-repo match cards with evidence reason + "Posted X ago" badge; "no strong match yet" / "checked N repos" states; **remove** the swap/re-roll controls.
+
+---
+
+## 15. Rollout / staging
+
+1. **Schema + ingest embeddings** — add tables, `vector`/array column, embed postings at ingest. No user-facing change yet.
+2. **Profile build + confirm UI** — repo picker (few-repo → use-all; many-repo → pinned via GraphQL + composite score), confirm step, `user_job_profile*` population, per-repo embeddings.
+3. **Matching engine** — `computeMatchesForUser` (cosine → drop seen → dedupe → recency rank → rerank → gate → adaptive per-repo cap), seen-ledger writes.
+4. **Website read path** — swap `GET /api/jobs/matches` to read precomputed rows; new match cards + recency badges; remove swap UI.
+5. **Cron** — 8am job over all onboarded users; frequent ingest.
+
+---
+
+## 16. Open questions / risks
+
+- **Cron time budget / scaling.** The 8am job runs a rerank LLM call per user; looping all users in one serverless invocation will blow the function timeout as the user base grows. Mitigations: process users in batches with bounded concurrency, and/or fan out (a queue, or paginated cron invocations) rather than one long loop. The confirm-step path is unaffected (single user). Decide the batching approach when building the cron.
+- **Freshness is the real bottleneck**, not model sophistication — ~1000 postings + daily sends means the seen-ledger + "send fewer" discipline matters as much as embeddings. Watch how fast heavy users run dry as internship season ramps.
+- **Repo drift** — the profile refreshes only on explicit edit; a user who pushes major new work won't be re-represented until they re-confirm. Acceptable for now; revisit if it bites.
+- **pgvector vs. `float8[]`** — decide at build start. Brute-force cosine in app code works with either at this scale.
+- **Embedding + rerank model choice** — `text-embedding-3-small` for postings/profiles; keep GPT-4o (or evaluate a cheaper rerank model) for the final step.
+- **Confidence calibration** — define the gate threshold and how (if at all) a score is surfaced, avoiding the "everything is 90%" inflation.
+
+## 17. Success signals
+
+- The job view loads effectively instantly for returning users (no live fetch/LLM).
+- Matches read as genuinely relevant to the user's actual projects (qualitative + click-through).
+- Users complete the confirm step and rarely need to edit afterward (config-once working as intended).
+- When email later ships, hold the digest to a **3–5% CTR** relevance bar; below ~2% is a matching problem, not deliverability.
