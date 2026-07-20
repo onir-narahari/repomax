@@ -1,3 +1,4 @@
+import OpenAI from 'openai'
 import type { JobPosting } from '@/types'
 
 // Source: Pitt CSC + Simplify's community-maintained internship board
@@ -84,6 +85,13 @@ async function fetchSimplifyFeed(url: string): Promise<SimplifyListing[]> {
   }
 }
 
+// Everything the Simplify feed actually gives us that carries tech signal —
+// the feed has no free-text description field, so "full posting" means
+// title + category + company + locations, not just title + category.
+export function fullPostingText(j: SimplifyListing): string {
+  return [j.title, j.category, j.company_name, ...(j.locations ?? [])].join(' ')
+}
+
 function normalizeListing(source: string, j: SimplifyListing): JobPosting {
   return {
     id: '', // assigned by the DB on upsert
@@ -93,7 +101,7 @@ function normalizeListing(source: string, j: SimplifyListing): JobPosting {
     company: j.company_name,
     location: j.locations && j.locations.length > 0 ? j.locations.slice(0, 3).join(', ') : null,
     absoluteUrl: j.url,
-    techTags: deriveTechTags(`${j.title} ${j.category}`),
+    techTags: deriveTechTags(fullPostingText(j)),
     postedAt: j.date_posted ? new Date(j.date_posted * 1000).toISOString() : null,
     isActive: true,
   }
@@ -105,4 +113,80 @@ export async function fetchCuratedJobPostings(): Promise<JobPosting[]> {
   const relevant = listings.filter((j) => j.active && j.is_visible !== false && RELEVANT_CATEGORIES.has(j.category))
 
   return relevant.map((j) => normalizeListing('simplify:internship', j))
+}
+
+const EMBEDDING_MODEL = 'text-embedding-3-small'
+const EMBEDDING_BATCH_SIZE = 100
+
+let _client: OpenAI | null = null
+function getClient() {
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _client
+}
+
+// Uniquely identifies a posting the same way the DB does (unique on
+// source + external_id), so callers can key embeddings back onto postings.
+export function postingKey(p: Pick<JobPosting, 'source' | 'externalId'>): string {
+  return `${p.source}:${p.externalId}`
+}
+
+function embeddingInput(p: JobPosting): string {
+  return `${p.title} at ${p.company}${p.location ? ` (${p.location})` : ''} — ${p.techTags.join(', ')}`
+}
+
+// The subset of a stored job_postings row that embeddingInput() is derived
+// from — enough to tell whether an existing embedding is still fresh.
+export interface EmbeddedPostingSnapshot {
+  title: string
+  company: string
+  location: string | null
+  techTags: string[]
+}
+
+function sameTags(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  return sortedA.every((t, i) => t === sortedB[i])
+}
+
+// True when `posting`'s embedding-relevant fields (the ones embeddingInput()
+// reads) differ from what's already stored — meaning the stored embedding is
+// stale even though it exists, e.g. because the title or category changed
+// upstream at the source for the same source+external_id. Order of techTags
+// doesn't matter, only membership.
+export function postingContentChanged(posting: JobPosting, stored: EmbeddedPostingSnapshot): boolean {
+  return (
+    posting.title !== stored.title ||
+    posting.company !== stored.company ||
+    posting.location !== stored.location ||
+    !sameTags(posting.techTags, stored.techTags)
+  )
+}
+
+// Embeds postings in batches (one OpenAI call per batch, not per posting).
+// Keyed by postingKey() so callers can merge results back onto postings that
+// need one. If a batch call fails, it's logged and skipped rather than
+// aborting the run — those postings simply stay unembedded (or stale) and
+// are picked up on a future ingest run (see the caller's new-or-changed
+// check, which uses postingContentChanged()).
+export async function embedJobPostings(postings: JobPosting[]): Promise<Map<string, number[]>> {
+  const embeddings = new Map<string, number[]>()
+
+  for (let i = 0; i < postings.length; i += EMBEDDING_BATCH_SIZE) {
+    const batch = postings.slice(i, i + EMBEDDING_BATCH_SIZE)
+    try {
+      const res = await getClient().embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: batch.map(embeddingInput),
+      })
+      for (const e of res.data) {
+        embeddings.set(postingKey(batch[e.index]), e.embedding)
+      }
+    } catch (err) {
+      console.error('[RepoMax] job posting embedding batch failed:', err)
+    }
+  }
+
+  return embeddings
 }

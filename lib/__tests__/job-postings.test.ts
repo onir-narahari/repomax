@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { deriveTechTags } from '../job-postings'
+import { deriveTechTags, fullPostingText, postingContentChanged, postingKey } from '../job-postings'
+import type { JobPosting } from '@/types'
 
 describe('deriveTechTags', () => {
   it('detects known keywords case-insensitively', () => {
@@ -15,5 +16,116 @@ describe('deriveTechTags', () => {
   it('can match multiple tags from one string', () => {
     const tags = deriveTechTags('React and Node.js full-stack role using AWS')
     expect(tags).toEqual(expect.arrayContaining(['react', 'javascript', 'aws']))
+  })
+})
+
+describe('postingKey', () => {
+  it('joins source and externalId with a colon', () => {
+    expect(postingKey({ source: 'simplify:internship', externalId: 'abc123' })).toBe(
+      'simplify:internship:abc123'
+    )
+  })
+
+  it('produces distinct keys for the same externalId under different sources', () => {
+    const a = postingKey({ source: 'simplify:internship', externalId: '1' })
+    const b = postingKey({ source: 'other-source', externalId: '1' })
+    expect(a).not.toBe(b)
+  })
+})
+
+describe('fullPostingText', () => {
+  it('joins title, category, company, and locations into one string', () => {
+    const text = fullPostingText({
+      id: '1',
+      category: 'Software Engineering',
+      company_name: 'Acme',
+      title: 'SWE Intern',
+      active: true,
+      url: 'https://example.com',
+      locations: ['Austin, TX', 'Remote'],
+    })
+    expect(text).toBe('SWE Intern Software Engineering Acme Austin, TX Remote')
+  })
+
+  it('omits locations entirely when none are given', () => {
+    const text = fullPostingText({
+      id: '1',
+      category: 'Quant',
+      company_name: 'Acme',
+      title: 'Quant Intern',
+      active: true,
+      url: 'https://example.com',
+    })
+    expect(text).toBe('Quant Intern Quant Acme')
+  })
+})
+
+describe('postingContentChanged', () => {
+  const posting: JobPosting = {
+    id: '',
+    source: 'simplify:internship',
+    externalId: 'abc123',
+    title: 'SWE Intern',
+    company: 'Acme',
+    location: 'Austin, TX',
+    absoluteUrl: 'https://example.com',
+    techTags: ['python', 'aws'],
+    postedAt: null,
+    isActive: true,
+  }
+
+  it('is false when every comparable field matches the stored snapshot', () => {
+    expect(
+      postingContentChanged(posting, {
+        title: 'SWE Intern',
+        company: 'Acme',
+        location: 'Austin, TX',
+        techTags: ['python', 'aws'],
+      })
+    ).toBe(false)
+  })
+
+  it('ignores tech tag ordering', () => {
+    expect(
+      postingContentChanged(posting, {
+        title: 'SWE Intern',
+        company: 'Acme',
+        location: 'Austin, TX',
+        techTags: ['aws', 'python'],
+      })
+    ).toBe(false)
+  })
+
+  it('is true when the title changed upstream', () => {
+    expect(
+      postingContentChanged(posting, {
+        title: 'Senior SWE Intern',
+        company: 'Acme',
+        location: 'Austin, TX',
+        techTags: ['python', 'aws'],
+      })
+    ).toBe(true)
+  })
+
+  it('is true when tech tags changed even with the same length', () => {
+    expect(
+      postingContentChanged(posting, {
+        title: 'SWE Intern',
+        company: 'Acme',
+        location: 'Austin, TX',
+        techTags: ['python', 'go'],
+      })
+    ).toBe(true)
+  })
+
+  it('is true when location changed to/from null', () => {
+    expect(
+      postingContentChanged(posting, {
+        title: 'SWE Intern',
+        company: 'Acme',
+        location: null,
+        techTags: ['python', 'aws'],
+      })
+    ).toBe(true)
   })
 })
