@@ -18,7 +18,12 @@ export const MAX_CANDIDATE_REPOS = 5
 // Tune these against real match output — see docs/prd-job-matching-revamp.md.
 const MIN_MATCH_CONFIDENCE = 60
 const MAX_MATCHES_PER_REPO = 2
-const MAX_TOTAL_MATCHES = 5
+// Exported: shared with lib/matching-engine.ts as its TARGET_MATCHES. The PRD's
+// funnel diagram (docs/prd-job-matching.md §8) and §8.5's worked examples
+// illustrate "3", but migration 0002 already raised user_job_matches.match_rank's
+// cap to 1-5 and this live-compute path already targets 5 — the PRD's "3"
+// predates that cap raise. Keep this at 5, don't "fix" it back down to 3.
+export const MAX_TOTAL_MATCHES = 5
 
 interface RepoProfile {
   repoName: string
