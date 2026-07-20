@@ -351,6 +351,8 @@ export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]
     stargazers_count: number
     updated_at: string
     size: number
+    description: string | null
+    topics: string[] | null
   }>)
     // Exclude forks, private repos, and empty repos (size === 0, same signal
     // fetchMetadata uses for EMPTY_REPO) — a fork or a repo with no pushed
@@ -363,5 +365,52 @@ export async function fetchUserRepos(username: string): Promise<GitHubUserRepo[]
       stars: r.stargazers_count ?? 0,
       updatedAt: r.updated_at,
       size: r.size ?? 0,
+      description: r.description ?? null,
+      topics: r.topics ?? [],
     }))
+}
+
+interface PinnedRepoNode {
+  name: string
+  owner: { login: string }
+}
+
+// GitHub's pinned repos are only exposed via GraphQL (no REST equivalent).
+// Returns repo names in pin order, filtered to ones actually owned by
+// `username` (pinnedItems can include repos the user contributed to but
+// doesn't own). Best-effort: no token, rate limit, or query failure just
+// yields no pins rather than surfacing an error — pins are a selection
+// nicety, not a hard requirement.
+export async function fetchPinnedRepoNames(username: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${BASE}/graphql`, {
+      method: 'POST',
+      headers: { ...githubHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query($login: String!) {
+          user(login: $login) {
+            pinnedItems(first: 6, types: REPOSITORY) {
+              nodes {
+                ... on Repository {
+                  name
+                  owner { login }
+                }
+              }
+            }
+          }
+        }`,
+        variables: { login: username },
+      }),
+      next: { revalidate: 0 },
+    })
+    if (!res.ok) return []
+    const json = await res.json()
+    const nodes = json?.data?.user?.pinnedItems?.nodes as PinnedRepoNode[] | undefined
+    if (!nodes) return []
+    return nodes
+      .filter((n) => n.owner?.login?.toLowerCase() === username.toLowerCase())
+      .map((n) => n.name)
+  } catch {
+    return []
+  }
 }
