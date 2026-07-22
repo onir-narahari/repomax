@@ -1,6 +1,6 @@
 import LandingHero from '@/components/LandingHero'
 import HomeReadmeLiveEdit from '@/components/HomeReadmeLiveEdit'
-import HomePageSections, { TestimonialsCarousel } from '@/components/HomePageSections'
+import HomePageSections, { ProofStats } from '@/components/HomePageSections'
 import { footerSectionBg } from '@/lib/landing-layout'
 
 export default function Home() {
@@ -9,7 +9,7 @@ export default function Home() {
       <LandingHero />
       <HomeReadmeLiveEdit />
       <HomePageSections />
-      <TestimonialsCarousel />
+      <ProofStats />
       <footer className={`${footerSectionBg} border-t border-white/[0.06] px-6 py-10 sm:px-8 sm:py-12`}>
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:gap-3 sm:text-left">
           <span className="text-[13px] font-medium tracking-[-0.01em] text-[#8A8F9C]">
