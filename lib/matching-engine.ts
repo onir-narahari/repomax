@@ -21,6 +21,7 @@ import OpenAI, { APIConnectionTimeoutError } from 'openai'
 import { z } from 'zod'
 import { createAdminClient } from './supabase-admin'
 import { MAX_TOTAL_MATCHES } from './job-matching'
+import { isGradOnlyPosting } from './job-postings'
 
 let _client: OpenAI | null = null
 function getClient() {
@@ -62,6 +63,10 @@ export interface RerankedMatch {
   // candidate GPT never scored, so there's no honest number to show. Every
   // GPT-produced match always carries a real 0-100 score.
   confidence: number | null
+  // Optional so existing call sites/tests that don't care about recency
+  // don't need to thread it through — missing/undefined is treated as
+  // "unknown age" (recencyMultiplier returns 1, i.e. no penalty or bonus).
+  postedAt?: string | null
 }
 
 export interface ComputeMatchesResult {
@@ -119,6 +124,42 @@ export const RECENCY_BOOST_STALE = 0
 const HOURS_48 = 48
 const HOURS_7D = 24 * 7
 const HOURS_14D = 24 * 14
+
+// 2026-07-20 product decision: never show a posting older than this, no
+// matter how strong the match — a 7-month-old posting read as a live
+// opportunity to a student, which isn't honest. Applied as a hard DB-query
+// filter in computeMatchesForUser (not just a ranking nudge).
+export const RECENCY_CUTOFF_DAYS = 45
+
+// Step 6 recency decay (post-rerank) — this is what actually reorders the
+// *displayed* set, unlike recencyBoost above (which only affects which
+// candidates survive into the rerank shortlist and is deliberately tiny).
+// 2026-07-20 product decision: recency should have real teeth — e.g. an 80%
+// match posted 3 days ago should outrank a 90% match posted 15 days ago —
+// but a large enough confidence gap can still win. Exponential so a posting
+// within about a week keeps most of its weight (a "solid plus"), then decays
+// fast through the first couple weeks and flattens out near the floor for
+// the rest of the eligible window (day 45 and day 60 look about the same,
+// not that day 60 is reachable — RECENCY_CUTOFF_DAYS excludes it upstream).
+export const RECENCY_DECAY_FLOOR = 0.4
+export const RECENCY_DECAY_TAU_DAYS = 14
+
+// The score actually used for final ordering + "which match is a repo's
+// best" decisions (gateMatches below) — GPT confidence discounted by how
+// stale the posting is. Missing/unparseable postedAt is treated as "unknown
+// age" (multiplier 1, no penalty) rather than guessed at.
+export function recencyMultiplier(postedAt: string | null | undefined, now: Date): number {
+  if (!postedAt) return 1
+  const posted = new Date(postedAt)
+  if (Number.isNaN(posted.getTime())) return 1
+  const ageDays = (now.getTime() - posted.getTime()) / (1000 * 60 * 60 * 24)
+  if (ageDays <= 0) return 1
+  return RECENCY_DECAY_FLOOR + (1 - RECENCY_DECAY_FLOOR) * Math.exp(-ageDays / RECENCY_DECAY_TAU_DAYS)
+}
+
+export function displayScore(confidence: number | null, postedAt: string | null | undefined, now: Date): number {
+  return (confidence ?? 0) * recencyMultiplier(postedAt, now)
+}
 
 // Bounds the active job pool pulled per run. Brute-force cosine over this
 // many vectors in app code is still microseconds-to-low-milliseconds (PRD
@@ -403,6 +444,7 @@ interface RerankCandidateInput {
   company: string
   location: string | null
   techTags: string[]
+  postedAt?: string | null
 }
 
 interface RepoSummaryInput {
@@ -526,6 +568,7 @@ async function rerankTopCandidates(
       matchedRepoName: candidate.matchedRepoName,
       matchReason: m.matchReason,
       confidence: m.confidence,
+      postedAt: candidate.postedAt ?? null,
     })
   }
   return matches
@@ -537,14 +580,14 @@ async function rerankTopCandidates(
 // beyond a repo's first, so bonus matches stay genuinely strong — only the
 // one guaranteed slot per repo can carry a low, honestly-labeled score
 // instead of being silently dropped. Pure/unit-testable; no I/O.
-export function gateMatches(reranked: RerankedMatch[]): RerankedMatch[] {
+export function gateMatches(reranked: RerankedMatch[], now: Date = new Date()): RerankedMatch[] {
   const bestByRepo = new Map<string, RerankedMatch>()
   const rest: RerankedMatch[] = []
   for (const m of reranked) {
     const existing = bestByRepo.get(m.matchedRepoName)
     if (!existing) {
       bestByRepo.set(m.matchedRepoName, m)
-    } else if ((m.confidence ?? -1) > (existing.confidence ?? -1)) {
+    } else if (displayScore(m.confidence, m.postedAt, now) > displayScore(existing.confidence, existing.postedAt, now)) {
       rest.push(existing)
       bestByRepo.set(m.matchedRepoName, m)
     } else {
@@ -552,8 +595,13 @@ export function gateMatches(reranked: RerankedMatch[]): RerankedMatch[] {
     }
   }
   const guaranteed = Array.from(bestByRepo.values())
+  // The confidence bar stays honesty-based, not recency-adjusted — it's
+  // asking "is this genuinely a strong match," which recency shouldn't be
+  // able to buy a pass on for a repo's *bonus* slots.
   const gatedRest = rest.filter((m) => (m.confidence ?? -1) >= MIN_MATCH_CONFIDENCE)
-  return [...guaranteed, ...gatedRest].sort((a, b) => (b.confidence ?? -1) - (a.confidence ?? -1))
+  return [...guaranteed, ...gatedRest].sort(
+    (a, b) => displayScore(b.confidence, b.postedAt, now) - displayScore(a.confidence, a.postedAt, now)
+  )
 }
 
 // Safety net for gateMatches: the rerank prompt now instructs GPT to never
@@ -578,6 +626,7 @@ export function fallbackForUnrepresentedRepos(
       matchedRepoName: c.matchedRepoName,
       matchReason: `Closest available role for ${c.matchedRepoName} in today's job pool. No stronger overlap found yet.`,
       confidence: null,
+      postedAt: c.postedAt ?? null,
     })
   }
   return fallbacks
@@ -634,16 +683,26 @@ export async function computeMatchesForUser(userId: string): Promise<ComputeMatc
   }
 
   // --- Load all active job embeddings (shared across every user) ---
+  // Hard recency cutoff: `is_active` only means "still on today's feed run",
+  // not "fresh" — some postings stay open for months. Filter at the query
+  // itself so a stale posting never reaches ranking regardless of how well
+  // it scores (2026-07-20 fix — a 7-month-old posting was showing up).
+  const recencyCutoffIso = new Date(Date.now() - RECENCY_CUTOFF_DAYS * 24 * 60 * 60 * 1000).toISOString()
   const { data: jobRows, error: jobErr } = await admin
     .from('job_postings')
     .select('id, title, company, location, tech_tags, posted_at, embedding')
     .eq('is_active', true)
     .not('embedding', 'is', null)
+    .gte('posted_at', recencyCutoffIso)
     .limit(JOB_POOL_LIMIT)
 
   if (jobErr) throw new Error(`JOB_POSTINGS_FETCH_FAILED: ${jobErr.message}`)
 
-  const jobPostings = (jobRows ?? []) as JobPostingRow[]
+  // Defensive re-filter for grad-only postings: isGradOnlyPosting is applied
+  // at ingest (lib/job-postings.ts) so new postings never get embedded, but
+  // this catches anything already sitting in the DB from before that filter
+  // existed, or added since without going through a fresh ingest.
+  const jobPostings = ((jobRows ?? []) as JobPostingRow[]).filter((j) => !isGradOnlyPosting(j.title))
   const jobById = new Map<string, JobPostingRow>()
   const jobEmbeddings: JobEmbeddingInput[] = []
   for (const j of jobPostings) {
@@ -699,15 +758,17 @@ export async function computeMatchesForUser(userId: string): Promise<ComputeMatc
       company: job?.company ?? '',
       location: job?.location ?? null,
       techTags: job?.tech_tags ?? [],
+      postedAt: job?.posted_at ?? null,
     }
   })
 
   const reranked = await rerankTopCandidates(rerankInputs, repoSummaries)
   const withFallback = [...reranked, ...fallbackForUnrepresentedRepos(rerankInputs, reranked)]
 
-  // --- Gate: every repo that reached rerank keeps its best; bonus slots
-  // beyond that still need to clear MIN_MATCH_CONFIDENCE ---
-  const gated = gateMatches(withFallback)
+  // --- Gate: every repo that reached rerank keeps its best (recency-
+  // adjusted); bonus slots beyond that still need to clear
+  // MIN_MATCH_CONFIDENCE on raw confidence ---
+  const gated = gateMatches(withFallback, new Date())
 
   // --- Display cap: one match per repo, DISPLAY_TOTAL_CAP overall ---
   const finalMatches = selectOneMatchPerRepo(gated)

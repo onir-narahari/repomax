@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveTechTags, fullPostingText, postingContentChanged, postingKey } from '../job-postings'
+import { deriveTechTags, fullPostingText, isGradOnlyPosting, postingContentChanged, postingKey } from '../job-postings'
 import type { JobPosting } from '@/types'
 
 describe('deriveTechTags', () => {
@@ -16,6 +16,33 @@ describe('deriveTechTags', () => {
   it('can match multiple tags from one string', () => {
     const tags = deriveTechTags('React and Node.js full-stack role using AWS')
     expect(tags).toEqual(expect.arrayContaining(['react', 'javascript', 'aws']))
+  })
+})
+
+describe('isGradOnlyPosting', () => {
+  it('excludes an explicit PhD requirement', () => {
+    expect(isGradOnlyPosting('Research Scientist Intern, PhD')).toBe(true)
+  })
+
+  it('excludes an MS/PhD combo requirement', () => {
+    expect(isGradOnlyPosting('Software Engineer Intern (MS/PhD)')).toBe(true)
+  })
+
+  it('excludes a hard Master\'s degree requirement', () => {
+    expect(isGradOnlyPosting("Data Science Intern - Master's Degree Required")).toBe(true)
+  })
+
+  it('excludes a soft Master\'s-preferred posting too — still a practical waste of an undergrad\'s time', () => {
+    expect(isGradOnlyPosting('Software Engineer Intern (Master\'s preferred)')).toBe(true)
+    expect(isGradOnlyPosting('Data Science Intern - MS Preferred')).toBe(true)
+  })
+
+  it('does not exclude a plain undergrad internship', () => {
+    expect(isGradOnlyPosting('Software Engineer Intern')).toBe(false)
+  })
+
+  it('does not exclude a posting genuinely open to either level', () => {
+    expect(isGradOnlyPosting('Software Engineer Intern (Undergraduate/Graduate)')).toBe(false)
   })
 })
 

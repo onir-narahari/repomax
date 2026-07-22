@@ -4,12 +4,14 @@ import {
   computeRepoCap,
   cosineSimilarity,
   dedupeByHighestScoringRepo,
+  displayScore,
   dropSeen,
   fallbackForUnrepresentedRepos,
   gateMatches,
   parseEmbedding,
   rankCandidates,
   recencyBoost,
+  recencyMultiplier,
   restoreRepoFloorIfFullySeen,
   retrieveTopCandidates,
   selectForRerank,
@@ -300,6 +302,97 @@ describe('recencyBoost', () => {
   it('stays small relative to a typical real-match cosine similarity gap', () => {
     // Relevance must lead; recency only nudges/tie-breaks (PRD §8.3 step 4).
     expect(RECENCY_BOOST_UNDER_48H).toBeLessThan(0.1)
+  })
+})
+
+describe('recencyMultiplier', () => {
+  const now = new Date('2026-07-20T12:00:00Z')
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000).toISOString()
+
+  it('returns 1 (no penalty) for unknown age', () => {
+    expect(recencyMultiplier(null, now)).toBe(1)
+    expect(recencyMultiplier(undefined, now)).toBe(1)
+    expect(recencyMultiplier('not-a-date', now)).toBe(1)
+  })
+
+  it('returns 1 for a posting from right now', () => {
+    expect(recencyMultiplier(now.toISOString(), now)).toBeCloseTo(1)
+  })
+
+  it('keeps most of its weight within the first week (a "solid plus")', () => {
+    expect(recencyMultiplier(daysAgo(7), now)).toBeGreaterThan(0.7)
+  })
+
+  it('decays monotonically as a posting ages', () => {
+    const m7 = recencyMultiplier(daysAgo(7), now)
+    const m15 = recencyMultiplier(daysAgo(15), now)
+    const m30 = recencyMultiplier(daysAgo(30), now)
+    expect(m7).toBeGreaterThan(m15)
+    expect(m15).toBeGreaterThan(m30)
+  })
+
+  it('flattens out near the floor for the back half of the eligible window', () => {
+    const m45 = recencyMultiplier(daysAgo(45), now)
+    const m60 = recencyMultiplier(daysAgo(60), now)
+    expect(Math.abs(m45 - m60)).toBeLessThan(0.05)
+  })
+})
+
+describe('displayScore / gateMatches recency bias', () => {
+  const now = new Date('2026-07-20T12:00:00Z')
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000).toISOString()
+
+  it('a fresher, weaker match outranks a stale, stronger one (product anchor case)', () => {
+    const fresh = displayScore(80, daysAgo(3), now)
+    const stale = displayScore(90, daysAgo(15), now)
+    expect(fresh).toBeGreaterThan(stale)
+  })
+
+  it('sorts a fresher-but-lower-confidence match ahead of a stale-but-higher-confidence one', () => {
+    const stale: RerankedMatch = {
+      jobPostingId: 'job-stale',
+      matchedRepoName: 'repo-a',
+      matchReason: 'because',
+      confidence: 90,
+      postedAt: daysAgo(15),
+    }
+    const fresh: RerankedMatch = {
+      jobPostingId: 'job-fresh',
+      matchedRepoName: 'repo-b',
+      matchReason: 'because',
+      confidence: 80,
+      postedAt: daysAgo(3),
+    }
+    const result = gateMatches([stale, fresh], now)
+    expect(result.map((r) => r.jobPostingId)).toEqual(['job-fresh', 'job-stale'])
+  })
+
+  it('picks the recency-adjusted best as the guaranteed slot when a repo\'s second candidate would otherwise be gated out', () => {
+    const stale: RerankedMatch = {
+      jobPostingId: 'job-stale',
+      matchedRepoName: 'repo-a',
+      matchReason: 'because',
+      confidence: 55, // below MIN_MATCH_CONFIDENCE on its own
+      postedAt: daysAgo(40),
+    }
+    const fresh: RerankedMatch = {
+      jobPostingId: 'job-fresh',
+      matchedRepoName: 'repo-a',
+      matchReason: 'because',
+      confidence: 50, // also below the bar, but fresher
+      postedAt: daysAgo(2),
+    }
+    const result = gateMatches([stale, fresh], now)
+    // Neither clears MIN_MATCH_CONFIDENCE, so only the guaranteed slot
+    // survives — and recency (not raw confidence) decides which one that is.
+    expect(result).toHaveLength(1)
+    expect(result[0].jobPostingId).toBe('job-fresh')
+  })
+
+  it('a large enough confidence gap still wins despite a recency disadvantage', () => {
+    const veryStale = displayScore(95, daysAgo(45), now)
+    const freshButWeak = displayScore(40, daysAgo(3), now)
+    expect(veryStale).toBeGreaterThan(freshButWeak)
   })
 })
 

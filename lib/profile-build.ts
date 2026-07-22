@@ -275,17 +275,39 @@ export async function extractRepoSkillProfile(ctx: RepoContext): Promise<RepoPro
   }
 }
 
-// Embeds a repo's profile_text — one vector per repo (§8.1: per-repo, not
-// blended, so matches attribute cleanly and diversity is natural). Matches
-// lib/matching-engine.ts's expectations: 1536-dim, text-embedding-3-small.
-export async function embedProfileText(profileText: string): Promise<number[]> {
-  const response = await getClient().embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: profileText,
-  })
-  const embedding = response.data[0]?.embedding
-  if (!embedding) throw new Error('EMBEDDING_ERROR')
-  return embedding
+// Embeds many repos' profile_text in as few OpenAI calls as possible — one
+// call per EMBEDDING_BATCH_SIZE texts, not one call per repo (same batching
+// shape as lib/job-postings.ts's embedJobPostings). Still one vector per
+// repo (§8.1: per-repo, not blended, so matches attribute cleanly and
+// diversity is natural); matches lib/matching-engine.ts's expectations:
+// 1536-dim, text-embedding-3-small. Keyed by fullName so callers can merge
+// embeddings back onto the row they belong to. If a batch call fails, every
+// repo in that batch is simply missing from the returned map rather than
+// throwing — the caller treats a missing embedding as a build failure for
+// just those repos.
+const EMBEDDING_BATCH_SIZE = 100
+
+async function embedProfileTexts(
+  entries: { fullName: string; profileText: string }[]
+): Promise<Map<string, number[]>> {
+  const embeddings = new Map<string, number[]>()
+
+  for (let i = 0; i < entries.length; i += EMBEDDING_BATCH_SIZE) {
+    const batch = entries.slice(i, i + EMBEDDING_BATCH_SIZE)
+    try {
+      const response = await getClient().embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: batch.map((e) => e.profileText),
+      })
+      for (const e of response.data) {
+        if (e.embedding) embeddings.set(batch[e.index].fullName, e.embedding)
+      }
+    } catch (err) {
+      console.error('[RepoMax] profile embedding batch failed:', err)
+    }
+  }
+
+  return embeddings
 }
 
 // ---------------------------------------------------------------------------
@@ -308,22 +330,26 @@ interface BuiltRow {
   updated_at: string
 }
 
-// Builds one committed repo's row: fetch context once, LLM-extract skills +
-// profile_text, embed it. Never throws — a fetch/LLM/embedding failure for
-// this one repo is caught and reported via the returned discriminant so a
-// missing/renamed repo (or a transient LLM hiccup) is skipped gracefully
-// without failing the whole profile build.
-async function buildOneRepoRow(
+// Same as BuiltRow but before the (now-batched) embedding step has run.
+type BuiltRowSkills = Omit<BuiltRow, 'embedding'>
+
+// Builds one committed repo's row up through skill extraction: fetch
+// context once, LLM-extract skills + profile_text. Embedding happens
+// separately, batched across all repos in the caller (see
+// embedProfileTexts) rather than per-repo here. Never throws — a
+// fetch/LLM failure for this one repo is caught and reported via the
+// returned discriminant so a missing/renamed repo (or a transient LLM
+// hiccup) is skipped gracefully without failing the whole profile build.
+async function buildOneRepoSkills(
   userId: string,
   fullName: string,
   repo: GitHubUserRepo,
   pinnedNames: ReadonlySet<string>
-): Promise<{ status: 'built'; row: BuiltRow } | { status: 'skipped'; repoName: string }> {
+): Promise<{ status: 'built'; row: BuiltRowSkills } | { status: 'skipped'; repoName: string }> {
   try {
     const { owner, repo: repoPath } = parseRepoUrl(repo.htmlUrl)
     const ctx = await fetchRepoContext(owner, repoPath)
     const { skills, profileText } = await extractRepoSkillProfile(ctx)
-    const embedding = await embedProfileText(profileText)
 
     return {
       status: 'built',
@@ -334,7 +360,6 @@ async function buildOneRepoRow(
         pinned: pinnedNames.has(repo.name),
         skills,
         profile_text: profileText,
-        embedding,
         updated_at: new Date().toISOString(),
       },
     }
@@ -401,16 +426,33 @@ export async function buildUserJobProfile(
     .map((fullName) => ({ fullName, repo: confirmedByFullName.get(fullName) }))
     .filter((t): t is { fullName: string; repo: GitHubUserRepo } => !!t.repo)
 
-  const buildResults = await Promise.all(
-    buildTargets.map((t) => buildOneRepoRow(userId, t.fullName, t.repo, pinnedNames))
+  const skillResults = await Promise.all(
+    buildTargets.map((t) => buildOneRepoSkills(userId, t.fullName, t.repo, pinnedNames))
   )
 
-  const builtRows = buildResults
-    .filter((r): r is { status: 'built'; row: BuiltRow } => r.status === 'built')
+  const builtSkillRows = skillResults
+    .filter((r): r is { status: 'built'; row: BuiltRowSkills } => r.status === 'built')
     .map((r) => r.row)
-  const skippedBuildFailures = buildResults
+  const skippedBuildFailures = skillResults
     .filter((r): r is { status: 'skipped'; repoName: string } => r.status === 'skipped')
     .map((r) => r.repoName)
+
+  // One batched embeddings call for every repo that made it through skill
+  // extraction, instead of one OpenAI call per repo.
+  const embeddingsByFullName = await embedProfileTexts(
+    builtSkillRows.map((row) => ({ fullName: row.repo_full_name, profileText: row.profile_text }))
+  )
+
+  const builtRows: BuiltRow[] = []
+  for (const row of builtSkillRows) {
+    const embedding = embeddingsByFullName.get(row.repo_full_name)
+    if (!embedding) {
+      console.error(`[RepoMax] profile build skipped repo "${row.repo_name}": embedding missing after batch`)
+      skippedBuildFailures.push(row.repo_name)
+      continue
+    }
+    builtRows.push({ ...row, embedding })
+  }
 
   if (builtRows.length > 0) {
     const { error: insertErr } = await admin
