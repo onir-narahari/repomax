@@ -3,7 +3,7 @@
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import OutputCard from '@/components/OutputCard'
-import RepoScoreCard, { type SaveStatus } from '@/components/RepoScoreCard'
+import RepoScoreCard from '@/components/RepoScoreCard'
 import RepoScoreCardGhost from '@/components/RepoScoreCardGhost'
 import type { AnalyzeResponse } from '@/types'
 
@@ -20,8 +20,6 @@ interface Props {
   isLoading?: boolean
   isAuthed?: boolean
   onRequireAuth?: (action: () => void) => void
-  saveStatus?: SaveStatus
-  onSaveScore?: () => void
 }
 
 // ─── Tab bar ─────────────────────────────────────────────────────────────────
@@ -66,7 +64,7 @@ function PillTabBar({
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed = false, onRequireAuth, saveStatus, onSaveScore }: Props) {
+export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed = false, onRequireAuth }: Props) {
   const hasData = !!data
   const hasReview = !!data?.repoScore
 
@@ -111,7 +109,7 @@ export default function OutputTabs({ data, repoUrl, isLoading = false, isAuthed 
 
         {hasData ? (
           activeTab === 'review' && data?.repoScore ? (
-            <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} saveStatus={saveStatus} onSave={onSaveScore} />
+            <RepoScoreCard score={data.repoScore} repoUrl={repoUrl} />
           ) : (
             <OutputCard
               content={data?.resumeBullets ?? []}
