@@ -2,11 +2,12 @@
 
 import { useEffect, useRef } from 'react'
 
-const TONE_RGB: Record<'green' | 'blue' | 'amber' | 'red' | 'muted', [number, number, number]> = {
+const TONE_RGB: Record<'green' | 'blue' | 'amber' | 'red' | 'pink' | 'muted', [number, number, number]> = {
   green: [34, 197, 94],
   blue: [122, 167, 255],
   amber: [245, 158, 11],
   red: [248, 113, 113],
+  pink: [249, 168, 212],
   muted: [104, 115, 134],
 }
 

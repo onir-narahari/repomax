@@ -79,15 +79,6 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function continueScoreText(n: number | null) {
-  if (n === null) return 'text-[#687386]'
-  if (n >= 90) return 'text-emerald-400'
-  if (n >= 80) return 'text-[#7AA7FF]'
-  if (n >= 70) return 'text-amber-400'
-  if (n >= 60) return 'text-orange-400'
-  return 'text-red-400'
-}
-
 // Three-tier system for the Repos Scored dashboard (rail color, chip, and
 // sparkline tone all key off this) — deliberately coarser than scoreAccent's
 // five bands above, since a rail/chip only needs to answer "does this repo
@@ -274,30 +265,39 @@ function ScoredRepoCard({ rh, onOpen }: { rh: RepoHistory; onOpen: () => void })
 
 // Stats strip above the Repos Scored grid — every number is derived from
 // the same `histories` the grid renders, nothing separately computed.
+const STAT_LABEL_CLASS = 'mt-0.5 text-[10.5px] font-bold uppercase tracking-wide text-[#F5F3EA]'
+
 function ScoredStatsStrip({ stats }: { stats: ReturnType<typeof repoDashboardStats> }) {
   return (
     <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#1E2A3D] sm:grid-cols-4">
       <div className="bg-[#0D111C] px-4 py-3.5">
-        <p className="font-mono text-lg font-bold tabular-nums text-[#F5F3EA]">{stats.total}</p>
-        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">repos scored</p>
+        <p className="font-mono text-lg font-bold tabular-nums text-[#F9A8D4]">{stats.total}</p>
+        <p className={STAT_LABEL_CLASS}>repos scored</p>
       </div>
       <div className="bg-[#0D111C] px-4 py-3.5">
-        <p className="font-mono text-lg font-bold tabular-nums text-[#F5F3EA]">{stats.avg ?? '—'}</p>
-        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">avg score</p>
+        <p className="font-mono text-lg font-bold tabular-nums text-[#F9A8D4]">{stats.avg ?? '—'}</p>
+        <p className={STAT_LABEL_CLASS}>avg score</p>
       </div>
-      <div className="bg-[#0D111C] px-4 py-3.5">
-        <p className="font-mono text-lg font-bold tabular-nums text-[#22C55E]">
-          {stats.mostImproved ? `+${stats.mostImproved.delta}` : '—'}
+      <div
+        className="bg-[#0D111C] px-4 py-3.5"
+        title={stats.mostImproved ? `${stats.mostImproved.repoName} · +${stats.mostImproved.delta}` : undefined}
+      >
+        <p
+          className={`font-mono text-lg font-bold tabular-nums text-[#F9A8D4] ${stats.mostImproved ? '' : 'select-none blur-[3px]'}`}
+          aria-hidden={stats.mostImproved ? undefined : true}
+        >
+          {stats.mostImproved ? `+${stats.mostImproved.delta}` : '+12'}
         </p>
-        <p className="mt-0.5 truncate text-[10.5px] text-[#3D4A60]">
-          {stats.mostImproved ? `most improved · ${stats.mostImproved.repoName}` : 'not enough scans yet'}
+        <p className={STAT_LABEL_CLASS}>
+          {!stats.mostImproved && <span className="sr-only">Most improved: locked — scan again to unlock — </span>}
+          most improved
         </p>
       </div>
       <div className="bg-[#0D111C] px-4 py-3.5">
-        <p className={`font-mono text-lg font-bold tabular-nums ${stats.needsAttention > 0 ? 'text-[#F59E0B]' : 'text-[#F5F3EA]'}`}>
+        <p className="font-mono text-lg font-bold tabular-nums text-[#F9A8D4]">
           {stats.needsAttention}
         </p>
-        <p className="mt-0.5 text-[10.5px] text-[#3D4A60]">needs attention</p>
+        <p className={STAT_LABEL_CLASS}>needs attention</p>
       </div>
     </div>
   )
@@ -477,23 +477,185 @@ function ScoredDashboardTeaser({ onScan }: { onScan: () => void }) {
   )
 }
 
-// Small ghost version of the Continue banner for Home's empty state — sits
-// above the real "New Score" card, which stays the actual CTA, so this one
-// stays quiet (a caption, not a competing button).
-function ContinueBannerTeaser() {
+// ─── Home: two-section layout (black + light-pink accent) ──────────────────────
+// "Score your repos" (primary, wider) and "Apply to jobs" (teaser, narrower)
+// as two equally-weighted cards, each owning one accent color (#F9A8D4) and
+// one clear action — replaces the old stack of same-weight status widgets
+// (Continue card, nudge, job teaser, New Score panel).
+
+function ScoreReposSection({
+  githubUsername,
+  githubRepos,
+  githubReposError,
+  hasScores,
+  latest,
+  repoHistories,
+  nudgeTarget,
+  onOpenDetail,
+  onRescan,
+  onScanRepo,
+  onViewAllRepos,
+}: {
+  githubUsername: string | null
+  githubRepos: GitHubUserRepo[] | null
+  githubReposError: string
+  hasScores: boolean
+  latest: SavedScore | undefined
+  repoHistories: RepoHistory[]
+  nudgeTarget: RepoHistory | null
+  onOpenDetail: (s: SavedScore) => void
+  onRescan: (s: SavedScore) => void
+  onScanRepo: (url: string) => void
+  onViewAllRepos: () => void
+}) {
+  const weakness = nudgeTarget?.latest.result?.repoScore?.weaknesses?.[0]
+
   return (
-    <div className="relative mb-4 overflow-hidden rounded-xl border border-[#1E2A3D]">
-      <div aria-hidden className="pointer-events-none flex select-none items-center gap-4 px-5 py-3.5 opacity-50 blur-[4px]">
-        <p className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-[#3D4A60]">Continue</p>
-        <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">your-repo-name</p>
-        <div className="ml-auto h-8 w-16">
-          <Sparkline points={[62, 70, 78, 91]} tone="green" className="h-8 w-full" />
-        </div>
-        <p className="shrink-0 text-lg font-bold text-[#22C55E]">91<span className="text-xs font-normal">/100</span></p>
+    <div className="rounded-2xl border border-[#1E2A3D] bg-[#0D111C] p-7 lg:col-span-3">
+      <h2 className="text-2xl font-bold tracking-tight text-[#F5F3EA]">Score your repos</h2>
+      <p className="mt-1 text-sm text-[#687386]">Pick one below and get a score in under a minute.</p>
+
+      {!githubUsername ? (
+        <Link
+          href="/generate"
+          className="group relative mt-6 flex flex-col overflow-hidden rounded-xl border border-[#F9A8D4]/25 bg-[#100C12] p-6 transition hover:border-[#F9A8D4]/45"
+        >
+          <ul className="space-y-3">
+            {SCORE_FEATURES.map((feature) => (
+              <li key={feature} className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#F9A8D4]/15">
+                  <Check className="h-3 w-3 text-[#F9A8D4]" strokeWidth={2.5} />
+                </span>
+                <span className="text-sm leading-snug text-[#9AA3B5]">{feature}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-6">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-[#F9A8D4] px-5 py-2.5 text-sm font-bold text-[#070A12] transition group-hover:brightness-110">
+              Score My Repo <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+            </span>
+            <p className="mt-2.5 text-xs text-[#3D4A60]">Takes about 30 seconds · no install needed</p>
+          </div>
+        </Link>
+      ) : (
+        <>
+          {hasScores && latest && repoHistories[0] && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenDetail(latest)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenDetail(latest) }}
+              className="group relative mt-6 flex cursor-pointer items-center gap-5 rounded-xl bg-[#090D16] px-5 py-4.5 pl-6 transition hover:bg-[#111827]/60"
+            >
+              <span className="absolute inset-y-3 left-0 w-[3px] rounded-full bg-[#F9A8D4]" />
+
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{latest.repo_name}</p>
+                {nudgeTarget && weakness && <p className="truncate text-xs text-[#687386]">{weakness}</p>}
+              </div>
+
+              <p className="shrink-0 text-xl font-bold tabular-nums text-[#F5F3EA]">
+                {latest.score ?? '—'}<span className="text-xs font-normal text-[#3D4A60]">/100</span>
+              </p>
+
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onRescan(latest) }}
+                className="shrink-0 rounded-lg bg-[#F9A8D4] px-4 py-2 text-xs font-semibold text-[#070A12] transition group-hover:brightness-110"
+              >
+                Rescore →
+              </button>
+            </div>
+          )}
+
+          {githubReposError && <p className="mt-6 text-sm text-red-400">{githubReposError}</p>}
+
+          {!githubReposError && githubRepos === null && (
+            <div className="mt-6 space-y-2">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-[52px] animate-pulse rounded-lg bg-[#090D16]" />
+              ))}
+            </div>
+          )}
+
+          {githubRepos !== null && githubRepos.length === 0 && (
+            <p className="mt-6 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
+          )}
+
+          {githubRepos !== null && githubRepos.length > 0 && (
+            <div className={`divide-y divide-[#1E2A3D] ${hasScores ? 'mt-2 border-t border-[#1E2A3D]' : 'mt-6'}`}>
+              {githubRepos.slice(0, 3).map((repo) => {
+                const fresh = TIER_CLASSES[freshnessTone(repo.updatedAt)]
+                return (
+                  <button
+                    key={repo.name}
+                    type="button"
+                    onClick={() => onScanRepo(repo.htmlUrl)}
+                    className="flex w-full items-center justify-between py-3.5 text-left transition hover:bg-[#111827]/40"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${fresh.rail}`} />
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
+                        <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
+                          {repo.language && (
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
+                          )}
+                          <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-lg bg-[#F9A8D4]/15 px-3 py-1.5 text-xs font-semibold text-[#F9A8D4]">Score →</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {githubRepos !== null && githubRepos.length > 3 && (
+            <button
+              type="button"
+              onClick={onViewAllRepos}
+              className="mt-3 flex items-center gap-1 text-xs font-medium text-[#F9A8D4] hover:brightness-110"
+            >
+              View all {githubRepos.length} repos →
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// Always the same teaser, regardless of GitHub/onboarding/match state — same
+// idea as ContinueBannerTeaser/ScoredDashboardTeaser elsewhere on Home:
+// illustrative rows blurred behind a centered CTA. Home teases; the Jobs tab
+// (which onViewJobs routes to) is where real per-state handling (connect
+// GitHub, run onboarding, show real matches, errors) actually lives.
+function ApplyJobsSection({ onViewJobs }: { onViewJobs: () => void }) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-[#1E2A3D] bg-[#0D111C] p-7 lg:col-span-2">
+      <h2 className="text-2xl font-bold tracking-tight text-[#F5F3EA]">Apply to jobs</h2>
+      <p className="mt-1 text-sm text-[#687386]">3 jobs matched to your GitHub profile and skills.</p>
+
+      <div className="mt-6 space-y-3">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="flex items-center gap-3 rounded-lg bg-[#090D16] px-4 py-3.5">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F9A8D4]/15 text-xs font-bold text-[#F9A8D4]">
+              {n}
+            </span>
+            <div aria-hidden className="h-3 select-none rounded-full bg-[#1E2A3D] blur-[4px]" style={{ width: `${64 - n * 10}%` }} />
+          </div>
+        ))}
       </div>
-      <div className="absolute inset-0 flex items-center justify-center bg-[#080C18]/50">
-        <p className="text-[11px] text-[#687386]">This is where your progress shows up →</p>
-      </div>
+
+      <button
+        type="button"
+        onClick={onViewJobs}
+        className="mt-6 inline-flex w-fit items-center gap-1.5 rounded-lg bg-[#F9A8D4] px-5 py-2.5 text-sm font-semibold text-[#070A12] shadow-[0_6px_16px_-6px_rgba(249,168,212,0.5)] transition hover:brightness-110"
+      >
+        See your 3 matches <ArrowRight className="h-3.5 w-3.5" />
+      </button>
     </div>
   )
 }
@@ -608,7 +770,10 @@ export default function ProfilePage() {
 
   // Only pull matches (the old live-compute path, unchanged by issue #15 —
   // see #17) once onboarding is actually done; otherwise the user is still
-  // on the confirm screen and there's nothing meaningful to show yet.
+  // on the confirm screen and there's nothing meaningful to show yet. Home's
+  // Apply-to-jobs card is a static teaser regardless of match state (always
+  // routes into this tab), so this only needs to fire once the Jobs tab is
+  // actually open.
   useEffect(() => {
     if (view !== 'jobs' || !githubUsername || jobMatchGroups !== null) return
     if (!jobsProfile?.onboarded) return
@@ -714,181 +879,36 @@ export default function ProfilePage() {
         {/* ═══ HOME ════════════════════════════════════════════════════════════ */}
         {view === 'home' && (
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-4xl px-6 py-8 sm:px-8 sm:py-10">
+            <div className="mx-auto w-full max-w-6xl px-6 py-8 sm:px-8 sm:py-10">
 
               {/* Header */}
               <div className="mb-6">
                 <h1 className="text-xl font-bold tracking-tight text-[#F5F3EA]">Your repo workspace</h1>
-                <p className="mt-1 text-sm text-[#687386]">Score new repos and track how they improve.</p>
               </div>
 
-              {/* First-time state: ghost preview of what Continue looks like once there's data */}
-              {!hasScores && <ContinueBannerTeaser />}
-
-              {/* Continue where you left off — trend + delta, not just a static number */}
-              {hasScores && repoHistories[0] && (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openDetail(latest)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openDetail(latest) }}
-                  className="group relative mb-4 flex cursor-pointer items-center gap-4 overflow-hidden rounded-xl border border-[#1E2A3D] bg-[#0D111C] px-5 py-3.5 pl-6 transition hover:border-[#334155]"
-                >
-                  <span className="absolute inset-y-2.5 left-0 w-[3px] rounded-full bg-[#22C55E] shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
-
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <p className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-[#3D4A60]">Continue</p>
-                    <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{latest.repo_name}</p>
-                  </div>
-
-                  {repoHistories[0].history.length > 0 && (
-                    <div className="hidden h-8 w-20 shrink-0 sm:block">
-                      <Sparkline points={repoHistories[0].history} tone={tierMeta(latest.score).tone} className="h-8 w-full" />
-                    </div>
-                  )}
-
-                  <div className="flex shrink-0 items-center gap-4">
-                    <div className="text-right">
-                      <p className={`text-lg font-bold tabular-nums leading-none ${continueScoreText(latest.score)}`}>
-                        {latest.score ?? '—'}<span className="text-xs font-normal text-[#3D4A60]">/100</span>
-                      </p>
-                      {repoHistories[0].delta !== null && repoHistories[0].delta !== 0 && (
-                        <p className={`mt-0.5 text-[10px] ${repoHistories[0].delta > 0 ? 'text-[#22C55E]' : 'text-red-400'}`}>
-                          {repoHistories[0].delta > 0 ? `▲ +${repoHistories[0].delta}` : `▼ ${repoHistories[0].delta}`} since last
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); rescan(latest) }}
-                      className="rounded-lg bg-[#F5F3EA] px-3 py-1.5 text-xs font-semibold text-[#070A12] transition group-hover:bg-white"
-                    >
-                      Rescore →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Next-fix nudge — names the lowest saved score and its actual #1 weakness */}
-              {hasScores && nudgeTarget && (() => {
-                const weakness = nudgeTarget.latest.result?.repoScore?.weaknesses?.[0]
-                if (!weakness) return null
-                return (
-                  <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/[0.06] px-4 py-3 text-xs leading-snug text-[#9AA3B5]">
-                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.7)]" />
-                    <span>
-                      <span className="font-mono font-semibold text-[#F5F3EA]">{nudgeTarget.repoName}</span> is your lowest saved score ({nudgeTarget.latest.score}) — {weakness}{' '}
-                      <button
-                        type="button"
-                        onClick={() => openDetail(nudgeTarget.latest)}
-                        className="font-semibold text-[#F5F3EA] underline-offset-2 hover:underline"
-                      >
-                        Fix that first →
-                      </button>
-                    </span>
-                  </div>
-                )
-              })()}
-
-              {/* Score a new repo — the one primary action on this screen */}
-              {githubUsername ? (
-                <div className="relative overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7">
-                  <div aria-hidden className="scan-sweep pointer-events-none absolute inset-0" />
-
-                  <div className="relative flex items-center justify-between">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
-                      <Plus className="h-2.5 w-2.5" /> NEW SCORE
-                    </span>
-                    <span className="rounded-full border border-[#1E2A3D] bg-[#111827] px-2 py-0.5 font-mono text-[10px] text-[#7AA7FF]">@{githubUsername}</span>
-                  </div>
-
-                  {githubReposError && <p className="relative mt-5 text-sm text-red-400">{githubReposError}</p>}
-
-                  {!githubReposError && githubRepos === null && (
-                    <div className="relative mt-5 space-y-2">
-                      {[...Array(3)].map((_, i) => (
-                        <div key={i} className="h-[52px] animate-pulse rounded-xl border border-[#1E2A3D] bg-[#090D16]" />
-                      ))}
-                    </div>
-                  )}
-
-                  {githubRepos !== null && githubRepos.length === 0 && (
-                    <p className="relative mt-5 text-sm text-[#687386]">No public repos found on your GitHub account yet.</p>
-                  )}
-
-                  {githubRepos !== null && githubRepos.length > 0 && (
-                    <div className="relative mt-5 space-y-2">
-                      {githubRepos.slice(0, 3).map((repo) => {
-                        const fresh = TIER_CLASSES[freshnessTone(repo.updatedAt)]
-                        return (
-                          <button
-                            key={repo.name}
-                            type="button"
-                            onClick={() => scanRepo(repo.htmlUrl)}
-                            className="flex w-full items-center justify-between rounded-xl border border-[#1E2A3D] bg-[#090D16] px-4 py-3 text-left transition hover:border-[#22C55E]/40"
-                          >
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${fresh.rail}`} />
-                              <div className="min-w-0">
-                                <p className="truncate font-mono text-sm font-medium text-[#F5F3EA]">{repo.name}</p>
-                                <p className="mt-0.5 flex items-center gap-2 text-[11px] text-[#687386]">
-                                  {repo.language && (
-                                    <span className={`h-2 w-2 shrink-0 rounded-full ${LANGUAGE_COLORS[repo.language] ?? 'bg-[#687386]'}`} />
-                                  )}
-                                  <span className="truncate">{repo.language ? `${repo.language} · ` : ''}updated {fmtUpdated(repo.updatedAt)}</span>
-                                </p>
-                              </div>
-                            </div>
-                            <span className="shrink-0 rounded-lg bg-[#22C55E]/15 px-3 py-1.5 text-xs font-semibold text-[#22C55E]">Score →</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {githubRepos !== null && githubRepos.length > 3 && (
-                    <button
-                      type="button"
-                      onClick={() => setView('repos')}
-                      className="relative mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[#7AA7FF] hover:text-[#9DBCFF]"
-                    >
-                      View all {githubRepos.length} repos →
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <Link
-                  href="/generate"
-                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#22C55E]/25 bg-[#0D111C] p-7 transition hover:border-[#22C55E]/45 hover:bg-[#0C1510] sm:p-8"
-                >
-                  <div aria-hidden className="scan-sweep pointer-events-none absolute inset-0" />
-                  <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#22C55E]/[0.07] to-transparent" />
-
-                  <div className="relative">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#22C55E]">
-                      <Plus className="h-2.5 w-2.5" /> NEW SCORE
-                    </span>
-                  </div>
-
-                  <ul className="relative mt-5 space-y-3.5">
-                    {SCORE_FEATURES.map((feature) => (
-                      <li key={feature} className="flex items-start gap-3">
-                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22C55E]/15">
-                          <Check className="h-3 w-3 text-[#22C55E]" strokeWidth={2.5} />
-                        </span>
-                        <span className="text-sm leading-snug text-[#9AA3B5]">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="relative mt-8">
-                    <span className="inline-flex items-center gap-2 rounded-xl bg-[#F5F3EA] px-6 py-3 text-sm font-bold text-[#070A12] transition group-hover:bg-white">
-                      Score My Repo <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                    </span>
-                    <p className="mt-3 text-xs text-[#3D4A60]">Takes about 30 seconds · no install needed</p>
-                  </div>
-                </Link>
-              )}
+              {/* Two sections, equal footing: score your repos (primary, wider) and
+                  apply to jobs (teaser, narrower) — replaces the old stack of
+                  status widgets (Continue card, nudge, job teaser, New Score
+                  panel) that all competed at the same visual weight.
+                  items-start: each card sizes to its own content instead of
+                  stretching to match the taller one — a short Jobs teaser
+                  next to a long repo list shouldn't inherit its height. */}
+              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
+                <ScoreReposSection
+                  githubUsername={githubUsername}
+                  githubRepos={githubRepos}
+                  githubReposError={githubReposError}
+                  hasScores={hasScores}
+                  latest={latest}
+                  repoHistories={repoHistories}
+                  nudgeTarget={nudgeTarget}
+                  onOpenDetail={openDetail}
+                  onRescan={rescan}
+                  onScanRepo={scanRepo}
+                  onViewAllRepos={() => setView('repos')}
+                />
+                <ApplyJobsSection onViewJobs={() => setView('jobs')} />
+              </div>
 
             </div>
           </div>
