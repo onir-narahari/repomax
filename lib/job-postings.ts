@@ -75,6 +75,29 @@ export function deriveTechTags(text: string): string[] {
   return tags
 }
 
+// The Simplify feed has no structured degree-requirement field — the only
+// signal available is free-text in the title (e.g. "Research Intern, PhD",
+// "Software Engineer Intern (MS/PhD)"). Excludes both hard requirements and
+// soft "preferred" wording — a grad-preferred posting still puts an undergrad
+// applicant at the back of the pile, so it's a practical waste of their time
+// even though it's not a hard rejection. Deliberately does not touch
+// "Undergraduate/Graduate" postings, which are genuinely open to undergrads.
+// Extend this list as false negatives surface — it's a heuristic, not a
+// guarantee.
+const GRAD_ONLY_TITLE_PATTERNS: RegExp[] = [
+  /\bph\.?d\.?\b/i,
+  /\bdoctoral\b/i,
+  /\bdoctorate\b/i,
+  /\bms\s*\/\s*ph\.?d\b/i,
+  /\bmaster'?s\s+(degree|only|required|preferred)\b/i,
+  /\bms\s+(degree|only|required|preferred)\b/i,
+  /\bgraduate\s+(student|research)\b/i,
+]
+
+export function isGradOnlyPosting(title: string): boolean {
+  return GRAD_ONLY_TITLE_PATTERNS.some((p) => p.test(title))
+}
+
 async function fetchSimplifyFeed(url: string): Promise<SimplifyListing[]> {
   try {
     const res = await fetch(url, { next: { revalidate: 0 } })
@@ -110,7 +133,9 @@ function normalizeListing(source: string, j: SimplifyListing): JobPosting {
 export async function fetchCuratedJobPostings(): Promise<JobPosting[]> {
   const listings = await fetchSimplifyFeed(INTERNSHIP_FEED)
 
-  const relevant = listings.filter((j) => j.active && j.is_visible !== false && RELEVANT_CATEGORIES.has(j.category))
+  const relevant = listings.filter(
+    (j) => j.active && j.is_visible !== false && RELEVANT_CATEGORIES.has(j.category) && !isGradOnlyPosting(j.title)
+  )
 
   return relevant.map((j) => normalizeListing('simplify:internship', j))
 }
