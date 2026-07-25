@@ -103,19 +103,13 @@ function GeneratePageContent() {
       setIsAuthed(!!data.session)
       setGithubUsername(deriveGithubUsername(data.session))
     })
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    // `account_created` for OAuth sign-ins is captured server-side in
+    // app/auth/callback/route.ts instead of here — this listener re-fires
+    // SIGNED_IN on every mount/tab-refocus while a session is fresh, which
+    // made this an unreliable, double-firing place to capture the event.
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthed(!!session)
       setGithubUsername(deriveGithubUsername(session))
-      if (event === 'SIGNED_IN' && session) {
-        const { created_at, last_sign_in_at } = session.user
-        const isNewAccount =
-          !!created_at &&
-          !!last_sign_in_at &&
-          Math.abs(new Date(last_sign_in_at).getTime() - new Date(created_at).getTime()) < 5000
-        if (isNewAccount) {
-          posthog.capture('account_created', { method: session.user.app_metadata?.provider ?? 'unknown' })
-        }
-      }
     })
     return () => listener.subscription.unsubscribe()
   }, [])

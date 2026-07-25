@@ -39,15 +39,20 @@ export default function HeroGithubCta({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void handleGithubConnect()}
-      disabled={loading}
-      className={`inline-flex items-center justify-center rounded-full bg-[#EC4899] font-semibold text-white transition hover:bg-[#F472B6] hover:shadow-[0_0_28px_rgba(236,72,153,0.35)] disabled:cursor-wait disabled:opacity-80 ${SIZE_CLASSES[size]} ${className}`}
-    >
-      <GithubMark className={size === 'lg' ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
-      {loading ? 'Redirecting…' : label}
-      {!loading && <ArrowRight className={size === 'lg' ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
-    </button>
+    <div className={`inline-flex flex-col items-center gap-2 ${className}`}>
+      <button
+        type="button"
+        onClick={() => void handleGithubConnect()}
+        disabled={loading}
+        className={`inline-flex items-center justify-center rounded-full bg-[#EC4899] font-semibold text-white transition hover:bg-[#F472B6] hover:shadow-[0_0_28px_rgba(236,72,153,0.35)] disabled:cursor-wait disabled:opacity-80 ${SIZE_CLASSES[size]}`}
+      >
+        <GithubMark className={size === 'lg' ? 'h-[18px] w-[18px]' : 'h-4 w-4'} />
+        {loading ? 'Redirecting…' : label}
+        {!loading && <ArrowRight className={size === 'lg' ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
+      </button>
+      <p className="max-w-[280px] text-center text-xs leading-snug text-[#687386]">
+        Read-only access to your public repos. We never see private code or write to anything.
+      </p>
+    </div>
   )
 }

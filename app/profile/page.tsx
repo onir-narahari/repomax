@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import posthog from 'posthog-js'
 import { Home, Clock, ArrowLeft, ArrowRight, ExternalLink, ChevronRight, Plus, Check, Menu, Briefcase, X, RefreshCw, Mail, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import Wordmark from '@/components/Wordmark'
@@ -376,6 +377,7 @@ function JobMatchCard({ m }: { m: RepoJobMatch }) {
           href={m.url}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => posthog.capture('job_match_apply_clicked', { company: m.company, confidence: m.confidence })}
           className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-[#F5F3EA] px-3 py-1.5 text-xs font-semibold text-[#070A12] transition hover:bg-white"
         >
           Apply <ExternalLink className="h-3 w-3" />
@@ -788,7 +790,10 @@ export default function ProfilePage() {
   const jobsConfirmScreenMode: 'onboarding' | 'edit' | null =
     jobsConfirmMode === 'edit' ? 'edit' : jobsProfile && !jobsProfile.onboarded ? 'onboarding' : null
 
-  const openEditProjects = useCallback(() => setJobsConfirmMode('edit'), [])
+  const openEditProjects = useCallback(() => {
+    posthog.capture('jobs_edit_projects_clicked')
+    setJobsConfirmMode('edit')
+  }, [])
   const cancelEditProjects = useCallback(() => setJobsConfirmMode(null), [])
 
   const handleJobsProfileConfirmed = useCallback((repoNames: string[]) => {
@@ -811,7 +816,11 @@ export default function ProfilePage() {
     { id: 'jobs', label: 'My Job Postings', Icon: Briefcase, active: view === 'jobs', badge: null },
   ]
 
-  const selectView = (id: View) => { setView(id); setSelected(null) }
+  const selectView = (id: View) => {
+    posthog.capture('profile_nav_clicked', { tab: id })
+    setView(id)
+    setSelected(null)
+  }
 
   return (
     <div className="flex h-screen bg-[#080C18] text-[#F5F3EA]">
@@ -907,7 +916,7 @@ export default function ProfilePage() {
                   onScanRepo={scanRepo}
                   onViewAllRepos={() => setView('repos')}
                 />
-                <ApplyJobsSection onViewJobs={() => setView('jobs')} />
+                <ApplyJobsSection onViewJobs={() => { posthog.capture('jobs_teaser_view_matches_clicked'); setView('jobs') }} />
               </div>
 
             </div>

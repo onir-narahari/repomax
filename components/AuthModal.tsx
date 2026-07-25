@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import posthog from 'posthog-js'
 import { createClient, oauthRedirectTo } from '@/lib/supabase'
 
 type Mode = 'signin' | 'signup'
@@ -55,6 +56,10 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
       if (error) {
         setError(error.message)
       } else {
+        // Email/password sign-up never goes through /auth/callback (no
+        // OAuth redirect), so it can't be captured there like GitHub/Google
+        // — this is the one and only place a real email account is created.
+        posthog.capture('account_created', { method: 'email' })
         onSuccess()
       }
     } else {
@@ -69,6 +74,7 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
   const handleGoogleSignIn = async () => {
     setError('')
     setGoogleLoading(true)
+    posthog.capture('authmodal_google_connect_clicked')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: oauthRedirectTo(redirectPath ?? `${window.location.pathname}${window.location.search}`) },
@@ -82,6 +88,7 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
   const handleGithubSignIn = async () => {
     setError('')
     setGithubLoading(true)
+    posthog.capture('authmodal_github_connect_clicked')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: { redirectTo: oauthRedirectTo(redirectPath ?? `${window.location.pathname}${window.location.search}`) },
@@ -149,6 +156,9 @@ export default function AuthModal({ initialMode = 'signup', onClose, onSuccess, 
             </svg>
             {githubLoading ? 'Redirecting…' : 'Continue with GitHub'}
           </button>
+          <p className="mt-2 text-center text-[11px] leading-snug text-[#687386]">
+            Read-only access to your public repos. We never see private code or write to anything.
+          </p>
 
           <button
             type="button"
