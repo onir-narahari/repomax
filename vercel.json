@@ -3,7 +3,7 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "crons": [
-    { "path": "/api/jobs/cron/match", "schedule": "0 8 * * *" },
-    { "path": "/api/jobs/refresh", "schedule": "30 7 * * *" }
+    { "path": "/api/jobs/cron/match", "schedule": "0 13 * * *" },
+    { "path": "/api/jobs/refresh", "schedule": "30 12 * * *" }
   ]
 }

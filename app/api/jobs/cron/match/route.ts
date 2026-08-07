@@ -1,58 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { computeMatchesForUser } from '@/lib/matching-engine'
-import { chunk } from '@/lib/batch'
 
-// The 8am daily precompute (docs/prd-job-matching.md §14, §16). Loops
-// computeMatchesForUser (issue #16, lib/matching-engine.ts — not modified
-// here) over every onboarded user, in bounded-concurrency batches so this
-// stays within the serverless function time budget as the user base grows
-// (§16: "looping all users in one serverless invocation will blow the
-// function timeout ... process users in batches with bounded concurrency").
+// The 8am CT daily run (docs/prd-job-matching.md §14, §16).
 //
-// 300s is the longest duration Vercel Cron-triggered functions can run on a
-// Pro plan (Hobby caps at 60s); bounded-concurrency batching is what keeps
-// this route inside that budget rather than relying on the ceiling alone —
-// see BATCH_SIZE below. Lower this back to 60 if the deploy target is Hobby.
-export const maxDuration = 300
+// This used to do the matching itself, looping computeMatchesForUser over
+// every user in batches inside this one invocation. That does not fit: the
+// Hobby plan hard-caps a function at 60s, and each user costs a GPT-4o
+// rerank round-trip, so past ~30 users the invocation was being killed
+// partway through and everyone after the cutoff silently got no matches.
+// (The `maxDuration = 300` this file used to declare is a Pro-only value and
+// was never actually in effect.)
+//
+// So this is now purely a dispatcher: read the user list, fan out one
+// request per user to /api/jobs/cron/match-user, which computes that user's
+// matches and emails them. Every user gets their own fresh 60s budget, and
+// because the fan-out is concurrent this route's own wall time is roughly
+// one worker's, not the sum of all of them.
+export const maxDuration = 60
 
-// How many users' computeMatchesForUser calls run concurrently per batch.
-// Each call makes a GPT-4o rerank request, so this is deliberately bounded
-// (not Promise.all over every user at once, which would spike concurrent
-// OpenAI/DB load) and not fully sequential (which would be needlessly slow
-// and risk the time budget on a large user base). 8 is a reasonable middle
-// ground; tune based on observed run time / OpenAI rate limits.
-const BATCH_SIZE = 8
+// Each worker is given nearly the whole budget before we give up on it — a
+// slow worker should still be allowed to finish and email its user. The
+// margin below 60s just guarantees this route returns a summary instead of
+// being killed mid-flight, so a stalled user is visible in the logs.
+const WORKER_TIMEOUT_MS = 50_000
 
 interface UserOutcome {
   userId: string
   ok: boolean
-  matchesWritten: number
+  emailed: boolean
 }
 
-async function runMatchBatch(userIds: string[]): Promise<UserOutcome[]> {
-  const batches = chunk(userIds, BATCH_SIZE)
-  const outcomes: UserOutcome[] = []
-
-  for (const batch of batches) {
-    const settled = await Promise.allSettled(
-      batch.map((userId) => computeMatchesForUser(userId))
-    )
-
-    settled.forEach((result, i) => {
-      const userId = batch[i]
-      if (result.status === 'fulfilled') {
-        outcomes.push({ userId, ok: true, matchesWritten: result.value.matchesWritten })
-      } else {
-        // Per-user failure isolation (§16): log and continue — one user's
-        // failure must never abort the batch or affect other users.
-        console.error(`[RepoMax] computeMatchesForUser failed for user ${userId}:`, result.reason)
-        outcomes.push({ userId, ok: false, matchesWritten: 0 })
-      }
+async function dispatchUser(baseUrl: string, secret: string, userId: string): Promise<UserOutcome> {
+  try {
+    const res = await fetch(`${baseUrl}/api/jobs/cron/match-user`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userId }),
+      signal: AbortSignal.timeout(WORKER_TIMEOUT_MS),
     })
-  }
 
-  return outcomes
+    if (!res.ok) {
+      console.error(`[RepoMax] match-user worker failed for ${userId}: HTTP ${res.status}`)
+      return { userId, ok: false, emailed: false }
+    }
+
+    const body = (await res.json()) as { emailed?: boolean }
+    return { userId, ok: true, emailed: body.emailed === true }
+  } catch (err) {
+    // Per-user failure isolation (§16): one user's worker erroring, timing
+    // out, or being unreachable must never affect anyone else's run.
+    console.error(`[RepoMax] match-user dispatch failed for ${userId}:`, err)
+    return { userId, ok: false, emailed: false }
+  }
 }
 
 // Vercel Cron Jobs only ever send a plain GET request — there is no way to
@@ -64,7 +66,7 @@ async function runMatchBatch(userIds: string[]): Promise<UserOutcome[]> {
 // needs to construct that header, Vercel does it. So this route checks that
 // header rather than a custom one like JOB_REFRESH_SECRET's x-refresh-secret
 // (app/api/jobs/refresh/route.ts) — a deliberate platform accommodation,
-// not an inconsistency.
+// not an inconsistency. The same secret is then forwarded to each worker.
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
@@ -89,16 +91,29 @@ export async function GET(req: NextRequest) {
   }
 
   const userIds = (profileRows ?? []).map((r) => r.user_id as string)
-  const outcomes = await runMatchBatch(userIds)
+
+  // Workers are invoked over HTTP against whatever host is serving this
+  // request, so preview deployments dispatch to their own workers rather
+  // than reaching into production.
+  const baseUrl = new URL(req.url).origin
+
+  // Deliberately unbatched: workers are separate invocations, so firing all
+  // of them at once keeps this route's wall time at ~one worker instead of
+  // (batches x worker time), which is what has to stay under 60s. The cost
+  // is a concurrency spike on OpenAI at dispatch. That is fine in the tens
+  // of users; when it starts hitting rate limits (order of several hundred
+  // users), move the fan-out to a queue with throttled delivery — Upstash
+  // QStash, since Upstash is already a dependency for rate limiting — and
+  // leave the worker route untouched.
+  const outcomes = await Promise.all(userIds.map((userId) => dispatchUser(baseUrl, secret, userId)))
 
   const succeeded = outcomes.filter((o) => o.ok).length
-  const failed = outcomes.length - succeeded
-  const totalMatchesWritten = outcomes.reduce((sum, o) => sum + o.matchesWritten, 0)
+  const emailsSent = outcomes.filter((o) => o.emailed).length
 
   return NextResponse.json({
     usersProcessed: outcomes.length,
     succeeded,
-    failed,
-    totalMatchesWritten,
+    failed: outcomes.length - succeeded,
+    emailsSent,
   })
 }
